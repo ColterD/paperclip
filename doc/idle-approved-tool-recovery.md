@@ -320,3 +320,16 @@ The complete gateway, policy and startup selection passes 230 cases with no skip
 server types pass. The complete assembled-server connection-management suite also
 passes all 78 cases, including delegated approval and rate-policy behavior. Fresh
 remote CI and reviews remain required after publication.
+
+
+The repair was then integrated with the master-based parent, including #17918's
+tracing changes, at `81231824d773a79fc50c835eccf7d9b3977e79fc`. Server types and the
+production server build pass. The gateway, policy, startup and preparation-timing
+suites pass all 242 cases. The complete HTTP management suite passes all 78 cases
+on a fresh dedicated database, for 320 passing cases across the accepted runs.
+
+The first combined integrated run passed 319 cases and failed the Slack setup
+case because its reused HTTP database still held the previous run's bot identity.
+The existing ownership guard correctly rejected the duplicate connection. A fresh
+dedicated fixture resolved that environment collision; no product behavior or
+assertion changed for the rerun. That failed run remains part of the evidence.
