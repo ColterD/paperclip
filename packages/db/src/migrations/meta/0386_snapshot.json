@@ -1,5 +1,5 @@
 {
-  "id": "7a73ad83-a55f-4636-8915-cad6dc25f66a",
+  "id": "da3229b5-4eab-4d8b-ba6b-d756e6c42430",
   "prevId": "9965d300-e355-4f47-ba0a-951ed3b4b8a2",
   "version": "7",
   "dialect": "postgresql",
@@ -24026,22 +24026,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "decisions_pending_continuation_idx": {
-          "name": "decisions_pending_continuation_idx",
-          "columns": [
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"decisions\".\"continuation_policy\" = 'wake_origin_agent' AND \"decisions\".\"metadata\" ->> 'continuationPending' = 'true' AND (\"decisions\".\"status\" IN ('expired', 'cancelled') OR (\"decisions\".\"status\" = 'decided' AND \"decisions\".\"execution_status\" IN ('succeeded', 'partial', 'failed')))",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -52915,6 +52899,27 @@
           "columns": [
             {
               "expression": "invocation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tool_action_requests_company_interaction_idx": {
+          "name": "tool_action_requests_company_interaction_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "interaction_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
