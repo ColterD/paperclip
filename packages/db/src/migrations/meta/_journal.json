@@ -2696,6 +2696,13 @@
       "when": 1793135146893,
       "tag": "0386_steady_epoch",
       "breakpoints": true
+    },
+    {
+      "idx": 387,
+      "version": "7",
+      "when": 1793136115698,
+      "tag": "0387_boring_professor_monster",
+      "breakpoints": true
     }
   ]
 }
