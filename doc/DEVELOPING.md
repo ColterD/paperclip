@@ -1838,6 +1838,21 @@ binding, then applies the existing run and operation permission checks.
 existing public helpers. Keep session policy changes separate from run
 orchestration changes.
 
+Explicit continuation admission reads only task/comment identity and dispatch
+evidence from the saved context. Its preflight reads the historical adapter type
+and workspace sync receipt. The coordinator and run locks retain their order.
+The locked reread retains the complete Runner profile because suspended-session
+and quarantined-cleanup proofs parse the exact saved execution input. Other run
+and dispatch paths retain their existing reads.
+
+Measure these two admission queries with
+`pnpm --filter @paperclipai/server exec tsx ../scripts/benchmark-continuation-run-reads.ts --baseline-ref=<pre-fix-commit>`.
+The synthetic PostgreSQL fixture compares the admission result and reports exact
+text-format DataRow frame bytes, SQL samples, and execution plans. It excludes
+TLS and protocol metadata. To use an isolated external database, set
+`PAPERCLIP_CONTINUATION_BENCHMARK_DATABASE_URL` to a disposable database ending
+in `_test`. The harness applies migrations there and adds synthetic fixtures.
+
 Retry scheduling is in `server/src/services/heartbeat/retries.ts`. It owns bounded
 retry schedules, connection and workspace contention deferrals, shared-workspace
 holder checks, due retry promotion, and retry-now requests. `createHeartbeatRetries`
