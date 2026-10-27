@@ -243,7 +243,7 @@ producers and request settlements use the existing review notification boundary.
 A partial index supports the first deadline. The aggregate tick now excludes
 interrupted claims; projection repair remains its own pending slice.
 
-Thirteen new worker cases and the existing service/startup selection pass
+Sixteen new worker cases and the existing service/startup selection pass
 (136 total on the combined head). Workspace typecheck/build and migration checks
 pass. Two fake-clock fixture ordering failures were corrected to wait for real
 settlement while advancing retry time. The combined tool-access run had one
