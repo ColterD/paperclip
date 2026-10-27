@@ -108,7 +108,7 @@ export function issueApprovalService(db: Db) {
     link: async (issueId: string, approvalId: string, actor?: LinkActor) => {
       const { issue } = await assertIssueAndApprovalSameCompany(issueId, approvalId);
 
-      await writeApprovalChange(db, issue.companyId, tx => tx
+      await writeApprovalChange(db, tx => tx
         .insert(issueApprovals)
         .values({
           companyId: issue.companyId,
@@ -128,7 +128,7 @@ export function issueApprovalService(db: Db) {
 
     unlink: async (issueId: string, approvalId: string) => {
       const { issue } = await assertIssueAndApprovalSameCompany(issueId, approvalId);
-      await writeApprovalChange(db, issue.companyId, tx => tx
+      await writeApprovalChange(db, tx => tx
         .delete(issueApprovals)
         .where(and(eq(issueApprovals.issueId, issueId), eq(issueApprovals.approvalId, approvalId))));
     },
@@ -158,7 +158,7 @@ export function issueApprovalService(db: Db) {
         }
       }
 
-      await writeApprovalChange(db, approval.companyId, tx => tx
+      await writeApprovalChange(db, tx => tx
         .insert(issueApprovals)
         .values(
           uniqueIssueIds.map((issueId) => ({

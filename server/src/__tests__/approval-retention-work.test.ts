@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { activityLog, agents, approvals, chatConversations, chatEndpoints, companies, createDb, decisionArchiveNotificationOutbox, decisionRetention, issueApprovals, issues, toolApplications, toolConnections, type Db } from "@paperclipai/db";
+import { activityLog, agents, approvals, chatConversations, chatEndpoints, companies, createDb, subscribeDatabaseWork, decisionArchiveNotificationOutbox, decisionRetention, issueApprovals, issues, toolApplications, toolConnections, type Db } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { resolveExternalTestDatabaseUrl } from "./helpers/external-test-database.js";
 import { approvalRecords } from "../services/approvals.js";
@@ -12,6 +12,7 @@ import { issueApprovalService } from "../services/issue-approvals.js";
 import { companyService } from "../services/companies.js";
 import { issueService } from "../services/issues.js";
 import { createDeliveryWorkCoordinator } from "../services/delivery-work-coordinator.js";
+import { DELIVERY_QUEUES } from "../services/delivery-work-notifications.js";
 import { idleWorkSnapshot } from "../services/task-admission.js";
 
 const externalUrl = resolveExternalTestDatabaseUrl("PAPERCLIP_APPROVAL_RETENTION_TEST_DATABASE_URL");
@@ -99,6 +100,48 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
     await vi.advanceTimersByTimeAsync(60_000);
     await archived(row.id); await quiet();
     expect((await db.select().from(approvals).where(eq(approvals.id, row.id)))[0].status).toBe("pending");
+  });
+
+  it.each(["approved", "rejected"] as const)("wakes parked tool reviews only on formal %s resolution", async outcome => {
+    const queues = [DELIVERY_QUEUES.toolReviewExpiry, DELIVERY_QUEUES.toolReviewRecovery,
+      DELIVERY_QUEUES.toolReviewInterruption, DELIVERY_QUEUES.toolReviewProjection];
+    const events = queues.map(() => [] as string[]);
+    const subscriptions = queues.map((queue, index) => subscribeDatabaseWork(db, queue, event => { events[index].push(event); }));
+    try {
+      const row = await create(), target = await issue();
+      for (let pass = 0; pass < 3; pass++) {
+        await issueApprovalService(db).link(target.id, row.id);
+        await issueApprovalService(db).unlink(target.id, row.id);
+      }
+      await approvalRecords(db).requestRevision(row.id, "board-user");
+      await approvalRecords(db).resubmit(row.id);
+      expect(events).toEqual(queues.map(() => []));
+      await approvalRecords(db).resolveApproval(row.id, outcome, "board-user", null);
+      expect(events).toEqual(queues.map(() => ["intent", "settled"]));
+    } finally { for (const unsubscribe of subscriptions) unsubscribe(); }
+  });
+
+  it("bounds aggregate retention reads to one reconciliation per thirty seconds of sequential tenant writes", async () => {
+    const [otherCompany] = await db.insert(companies).values({ name: "Other tenant", issuePrefix: `B${companyId.slice(0, 6)}` }).returning();
+    const other = await approvalRecords(db).create(otherCompany.id, { type: "request_board_approval", payload: {} });
+    const service = await start(); await settle();
+    const sweep = vi.spyOn(service, "sweep"), reads = vi.spyOn(db, "select");
+    await create();
+    await vi.waitFor(() => expect(sweep).toHaveBeenCalledTimes(1));
+    await sweep.mock.results[0].value;
+    await vi.waitFor(() => expect(idleWorkSnapshot().active).toBe(0));
+    const afterFirst = reads.mock.calls.length;
+    expect(afterFirst).toBe(2);
+    for (let pass = 0; pass < 3; pass++) {
+      await create();
+      await vi.advanceTimersByTimeAsync(100);
+    }
+    await vi.advanceTimersByTimeAsync(29_000);
+    expect(reads).toHaveBeenCalledTimes(afterFirst);
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.waitFor(() => expect(reads).toHaveBeenCalledTimes(afterFirst + 2));
+    reads.mockRestore();
+    expect((await db.select().from(approvals).where(eq(approvals.id, other.id)))[0].status).toBe("pending");
   });
 
   it("recovers old unseen approvals on startup and leaves completed history quiet", async () => {
