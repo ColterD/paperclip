@@ -91,10 +91,12 @@ sleep with unsupported obligations or proof of host suspension.
 
 ## Current verification
 
-All 246 cases in seven complete suites pass: 25 target, 80 routine, 54 decision,
-26 effect-recovery, 18 expiry, 42 startup and one scoped-deadline case. PostgreSQL
+All 248 cases in seven complete suites pass: 25 target, 80 routine, 54 decision,
+26 effect-recovery, 20 expiry, 42 startup and one scoped-deadline case. PostgreSQL
 suites use separate migrated external fixtures. Server typecheck and build pass.
-No new migration or table is added.
+No new migration or table is added. The normal parent merge preserves landed
+expiry and all 21 independent master files. Server types and build use the
+updated Runner vendor (1,524 inputs and 1,563 outputs).
 
 Four real regressions failed before repair: sub-millisecond paging, deletion
 behind a full valid startup page, unrelated deletion notifications and successful

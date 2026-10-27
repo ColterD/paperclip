@@ -749,3 +749,14 @@ removing the new lock also failed a controlled concurrent-proposal test. All
 246 target/routine/decision/effect/expiry/startup/deadline cases and server
 types/build pass. The existing restrictive company-deletion FKs and explicit
 combined-service compatibility path remain documented. Fresh head gates required.
+
+
+Slice 12 final combined-sweep cleanup: the repository/package/SDK audit found no
+production consumer or public exposure of `decisionService.sweepExpired` after
+the final duty split. Removed that method, its cursor/flags/imports and the
+unneeded target-policy export. Its behavioral tests now use the four dedicated
+workers. Real isolation tests show TTL does not recover effects and effect
+recovery does not expire open decisions. All 248 cases in seven complete suites,
+server types and build pass after integrating parent `c304273b75`. This supersedes
+the earlier manual-caller compatibility claim. Both creation signals remain:
+expiry-only creation and scoped target invalidation. Fresh head gates required.
