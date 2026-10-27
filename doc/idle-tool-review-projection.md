@@ -20,7 +20,8 @@ worker quiet, not whole-instance suspension.
 retains card interpretation, current-state checks, locks, activity publication,
 and the existing continuation callback. The scheduler consumes company discovery,
 `sweep(companyId)`, and the returned retry obligation. No provider payload enters shared scheduling.
-No table or migration is added.
+No table is added. A concurrent company/interaction lookup index supports the
+existing link checks and linked-request updates.
 
 The existing review notification helper now also signals projection repair.
 Notifications are awaited before writes and inherit the outer transaction's
@@ -128,3 +129,31 @@ and exercises administrative repair of legacy cards identified by their saved
 link rather than payload flags.
 
 Company-scoping follow-up verification: all 180 gateway and startup cases and all 152 interaction and secret-proposal route cases passed against dedicated PostgreSQL test databases. Server typechecking passed. These are local checks; stack CI and deployed sleep qualification remain separate.
+
+
+## Indexed interaction links
+
+Review found that the new link check had no supporting interaction index. An
+ordinary unlinked confirmation could scan all tool-action history for its company.
+The generated `0386_steady_epoch.sql` migration adds the non-unique
+`(company_id, interaction_id)` index concurrently, and the existing top-level
+migration executor handles its creation and interrupted-build recovery. The
+schema and generated snapshot describe the same index; older SQL and journal
+entries are preserved and snapshot pruning retains the five newest snapshots.
+
+A real PostgreSQL check applied the migration to a fresh dedicated test database
+and seeded 30,000 tool-action rows. The ordinary missing-link query returned no
+rows in both treatments: without the index it performed a sequential scan,
+filtered 30,000 rows and touched 429 shared buffers; with the index it used the
+new index and touched two buffers. These are local planner measurements, not a
+fleet latency or cost claim. The baseline index removal was rolled back in that
+dedicated database, and the index remained valid afterwards. An initial probe
+failed while binding a JSON fixture parameter before any comparison; correcting
+the parameter encoding made the complete probe pass. That failed fixture is not
+counted as a product regression.
+
+Migration numbering/safety checks, generated snapshot drift, server types and
+server build pass. All 214 cases in the full gateway/projection/startup/scoped-
+deadline selection pass against a separate freshly migrated database, preserving
+notification quiet, company isolation, transaction settlement, and interruption
+behavior. Latest-head CI and automated reviews remain required merge gates.
