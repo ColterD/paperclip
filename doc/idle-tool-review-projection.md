@@ -172,7 +172,8 @@ request ID for each unfinished company, including after a failed pass, so a
 poisoned early page cannot hide later healthy cards. A truncated pass schedules
 a one-second continuation; the existing shared per-company fairness and failure
 backoff remain in force. A completed pass that still has an unprojectable card
-retains the existing thirty-second retry. These are real unresolved projections,
+backs off from thirty seconds to five minutes. Fresh committed company changes
+reset that delay and wake the affected scope promptly. These are real unresolved projections,
 not an unconditional empty-history scan.
 
 Reconstruction clears continuation state for companies that no longer have
@@ -201,3 +202,28 @@ identity-read tests. Server types and build pass. Thirty-five independent master
 performance files are preserved exactly; the gateway's narrowed identity read
 is preserved alongside the projection extraction. The pre-integration 220-case
 selection above remains evidence for its stated revision.
+
+
+## Review efficiency follow-up
+
+A company-scoped hint now enters the bounded owner directly rather than first
+repeating company discovery. Startup/global reconstruction still discovers
+companies from existing rows. An empty sweep with no saved cursor returns after
+one candidate query; a resumed cursor or attempted reflection still needs the
+final query to detect unresolved earlier cards. The reflection callback returns
+no settlement result, so an attempted reflection cannot establish that a card
+was repaired.
+
+Returned unresolved work now backs off through 30, 60, 120, 240 and 300 seconds,
+matching the shared error-backoff cap. Truncated backlog continuation remains
+one second. Settlement removes the retry; a new committed hint resets backoff.
+No pending row is discarded, and no independent timer or table is added.
+
+The fixed-cadence regression failed before repair and now verifies the full
+backoff cap, producer reactivation and quiet after settlement. An initial scan
+assertion incorrectly assumed that a complete approval emitted only one wake;
+its separate legitimate writes caused two scans even after optimization. The
+corrected case isolates one committed hint and verifies one candidate scan with
+matching history, followed by an empty direct sweep with one query. All 222
+cases in the full gateway, startup and scoped-deadline suites pass without skips;
+server typecheck and build pass. Fresh-head CI and both reviews are still required.

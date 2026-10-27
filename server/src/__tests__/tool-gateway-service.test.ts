@@ -424,6 +424,50 @@ describeEmbeddedPostgres("tool gateway service", () => {
         expect(await projection(foreign)).toEqual(before); await quiet();
       });
 
+      it("uses one candidate scan for a committed company hint with matching retained history", async () => {
+        const pending = await request();
+        await gateway.approveActionRequest({ companyId: fixture.company.id, actionRequestId: pending.id, actor: { userId: "board" } });
+        await startProjection(); await quiet();
+        const reads: string[] = [];
+        const debug = db.$client.options.debug;
+        db.$client.options.debug = (_id, query) => {
+          if (/^select/i.test(query) && query.includes('"tool_action_requests"') && query.includes("coalesce(")) reads.push(query);
+        };
+        try {
+          await writeToolReviewChange(db, pending.companyId, async tx => {
+            await tx.update(toolActionRequests).set({ updatedAt: new Date() }).where(eq(toolActionRequests.id, pending.id));
+          });
+          await settle();
+          expect(reads).toHaveLength(1);
+          await quiet();
+          expect(reads).toHaveLength(1);
+          reads.length = 0;
+          expect(await gateway.repairActionReviewProjections(fixture.company.id)).toMatchObject({ scanned: 0, retry: false });
+          expect(reads).toHaveLength(1);
+        } finally { db.$client.options.debug = debug; }
+      });
+
+      it("backs off unresolved cards to five minutes and clears the retry after settlement", async () => {
+        const pending = await request();
+        await savedOutcome(pending, db, "failed");
+        await startProjection();
+        for (const delay of [30_000, 60_000, 120_000, 240_000, 300_000, 300_000]) {
+          const next = coordinator!.nextWakeAt();
+          expect(next).not.toBeNull();
+          expect(next! - Date.now()).toBeGreaterThan(delay - 1500);
+          expect(next! - Date.now()).toBeLessThanOrEqual(delay);
+          await settle(next! - Date.now() + 100);
+        }
+        expect(await projection(pending)).toBeUndefined();
+        await acceptedCard(pending);
+        await writeToolReviewChange(db, pending.companyId, async tx => {
+          await tx.update(toolActionRequests).set({ updatedAt: new Date() }).where(eq(toolActionRequests.id, pending.id));
+        });
+        await settle();
+        expect(await projection(pending)).toMatchObject({ status: "failed" });
+        await quiet();
+      });
+
       it("does not wake projection repair for ordinary confirmation creation, replacement, or cancellation", async () => {
         await startProjection(); await quiet();
         const interactions = issueThreadInteractionService(db);

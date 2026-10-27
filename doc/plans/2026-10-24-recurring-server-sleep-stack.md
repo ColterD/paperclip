@@ -326,3 +326,12 @@ the fixes. All 320 integrated gateway/projection/startup/deadline/identity/HTTP
 cases, server types and build pass; 35 independent master files are preserved
 exactly. Current-head CI and Greptile/Ponytail review remain required. Earlier
 case counts above describe the broader selections at their original revisions.
+
+
+Slice 07 follow-up: scoped hints avoid redundant discovery, empty sweeps avoid a
+second candidate read, and unresolved-card retries back off to five minutes.
+Fresh writes reactivate promptly and settlement is quiet. The full affected
+gateway/startup/deadline selection passes 222 cases; server types/build pass.
+The initial invalid one-wake-per-approval assertion and corrected isolated-hint
+measurement are retained in the behavior document. Current-head CI/reviews remain
+required before this slice can merge.
