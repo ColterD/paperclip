@@ -102,7 +102,7 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
     expect((await db.select().from(approvals).where(eq(approvals.id, row.id)))[0].status).toBe("pending");
   });
 
-  it.each(["approved", "rejected"] as const)("wakes parked tool reviews only on formal %s resolution", async outcome => {
+  it.each(["approved", "rejected", "cancelled"] as const)("wakes parked tool reviews only on terminal %s transition", async outcome => {
     const queues = [DELIVERY_QUEUES.toolReviewExpiry, DELIVERY_QUEUES.toolReviewRecovery,
       DELIVERY_QUEUES.toolReviewInterruption, DELIVERY_QUEUES.toolReviewProjection];
     const events = queues.map(() => [] as string[]);
@@ -116,7 +116,8 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
       await approvalRecords(db).requestRevision(row.id, "board-user");
       await approvalRecords(db).resubmit(row.id);
       expect(events).toEqual(queues.map(() => []));
-      await approvalRecords(db).resolveApproval(row.id, outcome, "board-user", null);
+      if (outcome === "cancelled") await approvalRecords(db).cancel(row.id, "cancelled by user");
+      else await approvalRecords(db).resolveApproval(row.id, outcome, "board-user", null);
       expect(events).toEqual(queues.map(() => ["intent", "settled"]));
     } finally { for (const unsubscribe of subscriptions) unsubscribe(); }
   });

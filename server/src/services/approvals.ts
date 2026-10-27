@@ -1,3 +1,4 @@
+import { notifyToolReviewChange } from "./tool-review-work-notifications.js";
 import { writeApprovalChange } from "./retention-work-notifications.js";
 import { approvalResolutionRecords, resolvableApprovalStatuses as resolvableStatuses } from "../lib/approval-records.js";
 import { notifyHireApproved } from "./hire-hook.js";
@@ -67,8 +68,9 @@ export function approvalRecords(db: Db) {
       const now = new Date();
       const [existing] = await db.select({ companyId: approvals.companyId }).from(approvals).where(eq(approvals.id, id));
       if (!existing) return null;
-      const updated = await writeApprovalChange(db, tx => tx
-        .update(approvals)
+      const updated = await writeApprovalChange(db, async tx => {
+        await notifyToolReviewChange(tx, existing.companyId);
+        return tx.update(approvals)
         .set({
           status: "cancelled",
           decisionNote: reason ?? null,
@@ -77,7 +79,8 @@ export function approvalRecords(db: Db) {
         })
         .where(and(eq(approvals.id, id), inArray(approvals.status, resolvableStatuses)))
         .returning()
-        .then((rows) => rows[0] ?? null));
+        .then((rows) => rows[0] ?? null);
+      });
       return updated;
     },
 
