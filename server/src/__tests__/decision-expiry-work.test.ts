@@ -251,12 +251,15 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
     expect(wake).not.toHaveBeenCalled(); expect(await service().nextExpiryAt()).toBeNull();
   });
 
-  it("keeps TTL expiry out of the aggregate sweep when its worker owns the duty", async () => {
+  it("does not recover stale running effects during TTL expiry", async () => {
     const row = await create();
-    await db.update(decisions).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(decisions.id, row.id));
-    expect(await service().sweepExpired(new Date(), { includeContinuations: false, includeExpiry: false })).toEqual({ expired: 0, resumed: 0 });
-    expect((await service().get(row.id))?.status).toBe("open");
-    expect(await service().sweepTtlExpiry()).toEqual({ expired: 1 }); expect(wake).toHaveBeenCalledTimes(1);
+    await db.update(decisions).set({ status: "decided", executionStatus: "running", chosenOptionId: "yes",
+      decidedByUserId: null, updatedAt: new Date(Date.now() - 120_000), expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(decisions.id, row.id));
+    expect(await service().sweepTtlExpiry()).toEqual({ expired: 0 });
+    expect(await service().get(row.id)).toMatchObject({ status: "decided", executionStatus: "running" });
+    expect(wake).not.toHaveBeenCalled();
+    expect(await service().nextExpiryAt()).toBeNull();
   });
 
   it("pages past a failed candidate and retries it without repeating completed expirations", async () => {

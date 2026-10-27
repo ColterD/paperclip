@@ -316,12 +316,15 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
     expect(errors.every(error => String(error).includes("wake unavailable"))).toBe(true); errors.length = 0;
   });
 
-  it("keeps aggregate maintenance from recovering effects when the worker owns them", async () => {
-    const row = await create(); await claim(row.id, new Date(Date.now() - 120_000));
-    expect(await service().sweepExpired(new Date(), { includeContinuations: false, includeExpiry: false, includeEffects: false }))
-      .toEqual({ expired: 0, resumed: 0 });
+  it("does not expire overdue open decisions during effect recovery", async () => {
+    const row = await create();
+    await db.update(decisions).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(decisions.id, row.id));
+    expect(await service().recoverEffects()).toEqual({ resumed: 0 });
+    expect(await service().get(row.id)).toMatchObject({ status: "open" });
     expect(await comments()).toHaveLength(0);
-    expect(await service().sweepExpired()).toEqual({ expired: 0, resumed: 1 }); expect(await comments()).toHaveLength(1);
+    expect(wake).not.toHaveBeenCalled();
+    expect(await service().sweepTtlExpiry()).toEqual({ expired: 1 });
+    expect(wake).toHaveBeenCalledTimes(1);
   });
 
   it.each(["missing_decider", "missing_option"] as const)("settles %s as durable failure and then becomes quiet", async reason => {

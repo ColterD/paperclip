@@ -19,11 +19,10 @@ to expire it. The existing open-status compare-and-set arbitrates expiry against
 other decision transitions.
 
 `decision-targets.ts` owns this policy and scoped reconciliation. It delegates
-expiry, activity, and continuation to the existing expiry owner. The public
-combined `sweepExpired` keeps its default behavior for compatibility. Startup
-registers the target worker when scheduling is enabled. The main maintenance tick
-no longer calls the combined decision sweep at all. No new table or migration is
-added.
+expiry, activity, and continuation to the existing expiry owner. Startup
+registers the target worker when scheduling is enabled. The combined internal
+`sweepExpired` method is removed after the final duty is split. No new table or
+migration is added.
 
 ## Producer audit
 
@@ -105,10 +104,12 @@ Temporarily removing the issue-row lock made the test fail because the proposal
 was accepted instead of waiting; restoring it passes. The mutation was restored
 before commit. No timeout or production hold was weakened.
 
-The explicit combined service entry point remains for existing manual callers
-and compatibility tests. It delegates the strict-target rule to this same owner;
-there is no second policy implementation. Normal startup and maintenance use the
-dedicated worker and do not call that target scan.
+The combined internal method had no production caller after this split. The
+server package exposes only its startup module; neither its exports nor the
+plugin SDK exposes the decision service. Its tests now call the dedicated TTL,
+target, effect and continuation workers, preserving their outcome assertions.
+The obsolete cursor, scan options and exported target-policy method are removed.
+HTTP and plugin SDK contracts are unchanged.
 
 Fresh current-head CI and both automated reviews remain required. Historical
 fixture and CI failures below remain part of the verification record. Extra

@@ -348,7 +348,6 @@ vi.mock("../services/index.js", () => ({
     list: vi.fn(async () => ({ items: [], nextCursor: null })),
   })),
   decisionService: vi.fn(() => ({
-    sweepExpired: vi.fn(async () => ({ expired: 0 })),
     sweepInvalidTargets: vi.fn(async () => ({ expired: 0 })),
     decisionTargetsChanged: vi.fn(),
     hasDecisionTargetWork: vi.fn(() => false),
@@ -931,7 +930,6 @@ describe("startServer feedback export wiring", () => {
       expect(deliveryWorkRegisterMock.mock.calls.some(([queue]) => queue === DELIVERY_QUEUES.decisionExpiry)).toBe(true);
       expect(decisions.sweepInvalidTargets).toHaveBeenCalledTimes(1);
       expect(deliveryWorkRegisterMock.mock.calls.some(([queue]) => queue === DELIVERY_QUEUES.decisionTargets)).toBe(true);
-      expect(decisions.sweepExpired).not.toHaveBeenCalled();
     } finally {
       setIntervalSpy.mockRestore();
     }

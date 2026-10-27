@@ -225,12 +225,12 @@ describePg("decisionService", () => {
       ...original(source, options), archiveReviewedManifest: async () => { throw new Error("archive_failure"); },
     })) : undefined;
     try {
-      expect(await service().sweepExpired()).toMatchObject({ resumed: 1 });
+      expect(await service().recoverEffects()).toMatchObject({ resumed: 1 });
       const saved = await service().get(row.id);
       expect(saved).toMatchObject({ executionStatus: "failed", metadata: { archiveProposalError: failure, continuationPending: false } });
       expect(saved!.metadata.continuationDeliveredAt).toEqual(expect.any(String));
       expect(wakes).toHaveLength(1);
-      await service().sweepExpired();
+      await service().recoverEffects();
       expect(wakes).toHaveLength(1);
     } finally { factory?.mockRestore(); }
   });
@@ -512,7 +512,7 @@ describePg("decisionService", () => {
     expect(await db.select().from(issueComments).where(eq(issueComments.issueId, targetIssueId))).toHaveLength(1);
   });
 
-  it("recovers stale running decisions from the bounded server sweep", async () => {
+  it("recovers stale running decisions from the effect worker", async () => {
     process.env.PAPERCLIP_DECISIONS_RECOVERY_GRACE_MS = "0";
     const created = await createCommentDecision();
     await db.update(decisions).set({ status: "decided", executionStatus: "running", chosenOptionId: "yes", decidedByUserId,
@@ -520,7 +520,7 @@ describePg("decisionService", () => {
     await db.insert(decisionEffectExecutions).values({ decisionId: created.id, effectIndex: 0, effectType: "comment_on_issue",
       targetIssueId, status: "claimed" });
 
-    expect(await service().sweepExpired()).toEqual({ expired: 0, resumed: 1 });
+    expect(await service().recoverEffects()).toEqual({ resumed: 1 });
     expect((await service().get(created.id))?.executionStatus).toBe("succeeded");
     expect(await db.select().from(issueComments).where(eq(issueComments.issueId, targetIssueId))).toHaveLength(1);
     expect(wakes).toEqual([{ companyId, agentId, issueId: originIssueId, decisionId: created.id, outcome: "decided" }]);
@@ -538,7 +538,7 @@ describePg("decisionService", () => {
     expect((await service().get(created.id))?.metadata).toMatchObject({ continuationPending: true });
     expect(await db.select().from(issueComments).where(eq(issueComments.issueId, targetIssueId))).toHaveLength(1);
 
-    await service().sweepExpired();
+    await service().sweepContinuations();
 
     expect(wakes).toEqual([{ companyId, agentId, issueId: originIssueId, decisionId: created.id, outcome: "decided" }]);
     expect((await service().get(created.id))?.metadata).toMatchObject({ continuationPending: false });
@@ -613,8 +613,8 @@ describePg("decisionService", () => {
     const second = await createCommentDecision("lenient", { idempotencyKey: "batch-2", expiresAt: nearFutureExpiry() });
     await expireDecisionNow(first.id);
     await expireDecisionNow(second.id);
-    expect((await service().sweepExpired()).expired).toBe(1);
-    expect((await service().sweepExpired()).expired).toBe(1);
+    expect((await service().sweepTtlExpiry()).expired).toBe(1);
+    expect((await service().sweepTtlExpiry()).expired).toBe(1);
   });
 
   it("falls back to the default sweep batch size for invalid configuration", async () => {
@@ -624,7 +624,7 @@ describePg("decisionService", () => {
     await expireDecisionNow(first.id);
     await expireDecisionNow(second.id);
 
-    await expect(service().sweepExpired()).resolves.toMatchObject({ expired: 2 });
+    await expect(service().sweepTtlExpiry()).resolves.toMatchObject({ expired: 2 });
   });
 
   it("expires TTL and target-gone decisions and wakes the origin agent", async () => {
@@ -633,7 +633,8 @@ describePg("decisionService", () => {
     await db.update(decisions).set({ expiresAt: new Date(0) }).where(eq(decisions.id, ttl.id));
     await db.update(issues).set({ status: "cancelled" }).where(eq(issues.id, targetIssueId));
     await expireDecisionNow(ttl.id);
-    expect((await service().sweepExpired()).expired).toBe(2);
+    expect((await service().sweepTtlExpiry()).expired).toBe(1);
+    expect((await service().sweepInvalidTargets()).expired).toBe(1);
     const rows = await db.select().from(decisions);
     expect(rows.find((row) => row.id === ttl.id)?.metadata).toMatchObject({ expiredReason: "ttl" });
     expect(rows.find((row) => row.id === gone.id)?.metadata).toMatchObject({ expiredReason: "target_gone" });
@@ -645,7 +646,7 @@ describePg("decisionService", () => {
     const lenient = await createCommentDecision("lenient", { idempotencyKey: "lenient-survives" });
     await db.update(issues).set({ status: "done" }).where(eq(issues.id, targetIssueId));
 
-    expect((await service().sweepExpired()).expired).toBe(1);
+    expect((await service().sweepInvalidTargets()).expired).toBe(1);
 
     expect((await service().get(completed.id))?.metadata).toMatchObject({ expiredReason: "target_completed" });
     expect((await service().get(lenient.id))?.status).toBe("open");
@@ -656,7 +657,7 @@ describePg("decisionService", () => {
     await db.update(issues).set({ status: "done" }).where(eq(issues.id, targetIssueId));
     const reopen = await createCommentDecision("strict", { idempotencyKey: "already-done" });
 
-    expect((await service().sweepExpired()).expired).toBe(0);
+    expect((await service().sweepInvalidTargets()).expired).toBe(0);
     expect((await service().get(reopen.id))?.status).toBe("open");
   });
 
@@ -691,7 +692,7 @@ describePg("decisionService", () => {
     });
     await db.update(issues).set({ status: "done" }).where(eq(issues.id, blockerId));
 
-    expect((await service().sweepExpired()).expired).toBe(1);
+    expect((await service().sweepInvalidTargets()).expired).toBe(1);
     expect((await service().get(created.id))?.metadata).toMatchObject({ expiredReason: "target_completed" });
   });
 
@@ -716,7 +717,7 @@ describePg("decisionService", () => {
     await service().decide({ id: acceptedAgain.id, optionId: "assign", decidedByUserId, userActor: boardActor() });
     await service().dismiss(rejected.id, decidedByUserId, boardActor(), "Not this time");
     await expireDecisionNow(stale.id);
-    await service().sweepExpired();
+    await service().sweepTtlExpiry();
 
     const stats = await service().stats(companyId, { originAgentId: agentId });
     expect(stats.filters).toEqual({ originAgentId: agentId, since: null });
@@ -825,7 +826,7 @@ describePg("decisionService", () => {
       if (action === "decide") await svc.decide({ id: row.id, optionId: "yes", decidedByUserId, userActor: boardActor() });
       if (action === "cancel") await svc.cancel(row.id, { actorType: "agent", actorId: agentId });
       if (action === "dismiss") await svc.dismiss(row.id, decidedByUserId, boardActor());
-      if (action === "expire") { await expireDecisionNow(row.id); await svc.sweepExpired(new Date(), { includeContinuations: false }); }
+      if (action === "expire") { await expireDecisionNow(row.id); await svc.sweepTtlExpiry(); }
       await quiet(); await delivered(row.id);
       expect(wake).toHaveBeenCalledTimes(1);
       expect(wake.mock.calls[0][0]).toMatchObject({ decisionId: row.id, companyId, agentId, issueId: originIssueId });

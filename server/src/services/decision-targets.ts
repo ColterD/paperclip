@@ -89,5 +89,5 @@ export function decisionTargetService(db: Db, expire: ReturnType<typeof decision
     return { expired };
   }
 
-  return { reason, sweep, changed, hasPending: () => scopes.size > 0 };
+  return { sweep, changed, hasPending: () => scopes.size > 0 };
 }
