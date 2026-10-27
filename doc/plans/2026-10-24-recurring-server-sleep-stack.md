@@ -484,3 +484,10 @@ Final workspace typecheck/build and fresh PR CI/review remain required.
 The parent continuation PR is awaiting fresh review/CI on `5f96892a58`, with both
 initial findings repaired and resolved. The full inventory remains in scope.
 
+Slice 10 review repair: configured batch bounds, one-second successful overdue
+continuations and atomic expiration/activity settlement pass all three previously
+failing real PostgreSQL regressions. All 129 affected expiry/continuation/archive/
+startup/deadline cases, server types/build and snapshot drift pass. Own concurrent
+index was regenerated as `0389_brave_hulk.sql`, preserving parent history. The
+initial startup-reconciliation assertion failure and corrected boundary are
+recorded in the owning behavior audit. Latest-head CI/reviews remain required.
