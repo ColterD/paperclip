@@ -1,4 +1,4 @@
-import { notifyDecisionTargetWork } from "./decision-target-work.js";
+import { notifyDecisionTargetWork, notifyDecisionTargetIssueRemoval } from "./decision-targets.js";
 import { assertOnboardingFirstTaskCreationAllowed } from "./onboarding-first-task-admission.js";
 
 import { resolveConnectionIntentContinuationSource, resolveItemVerdictContinuationWake } from "./chat-interaction-continuation.js";
@@ -11796,7 +11796,7 @@ export function issueService(db: Db) {
         try {
           await notifyTerminalWorkspaceWork(tx, `issue:${id}`);
           await requestRestorePointDeletion(tx, { sourceIssueId: id });
-          await notifyDecisionTargetWork(tx);
+          await notifyDecisionTargetIssueRemoval(tx, id);
           removedIssue = await tx
             .delete(issues)
             .where(eq(issues.id, id))

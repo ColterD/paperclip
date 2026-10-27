@@ -1,12 +1,27 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { decisions, decisionTargetIssues, issues, type Db } from "@paperclipai/db";
 import { decisionEffectTargetIssueIds } from "@paperclipai/shared";
 import type { decisionExpiryService } from "./decision-expiry.js";
+import { DELIVERY_QUEUES, notifyDeliveryWork } from "./delivery-work-notifications.js";
 
 type Decision = typeof decisions.$inferSelect;
-type Cursor = { expiresAt: Date; id: string };
+type Cursor = { expiresAt: string; id: string };
 type Scope = { kind: "all" | "issue" | "decision"; id?: string; cursor?: Cursor };
 const open = sql`${decisions.status} = 'open'`;
+
+export function notifyDecisionTargetWork(transaction: object, hint: `issue:${string}` | `decision:${string}`) {
+  return notifyDeliveryWork(transaction, DELIVERY_QUEUES.decisionTargets, hint);
+}
+
+export async function notifyDecisionTargetIssueRemoval(transaction: Pick<Db, "select" | "selectDistinct">, issueId: string) {
+  const [issue] = await transaction.select({ companyId: issues.companyId }).from(issues)
+    .where(eq(issues.id, issueId)).for("update");
+  if (!issue) return;
+  const linked = await transaction.selectDistinct({ decisionId: decisionTargetIssues.decisionId }).from(decisionTargetIssues)
+    .innerJoin(decisions, eq(decisions.id, decisionTargetIssues.decisionId))
+    .where(and(eq(decisionTargetIssues.companyId, issue.companyId), eq(decisionTargetIssues.issueId, issueId), eq(decisions.companyId, issue.companyId), open));
+  for (const row of linked) await notifyDecisionTargetWork(transaction, `decision:${row.decisionId}`);
+}
 
 export function decisionTargetService(db: Db, expire: ReturnType<typeof decisionExpiryService>["expire"]) {
   const scopes = new Map<string, Scope>([["all", { kind: "all" }]]);
@@ -41,11 +56,11 @@ export function decisionTargetService(db: Db, expire: ReturnType<typeof decision
       scopes.delete(key);
       const limit = 100 - inspected;
       try {
-        const rows = await db.select().from(decisions).where(and(open,
+        const rows = await db.select({ ...getTableColumns(decisions), cursorExpiresAt: sql<string>`${decisions.expiresAt}::text` }).from(decisions).where(and(open,
           scope.kind === "decision" ? eq(decisions.id, scope.id!) : undefined,
           scope.kind === "issue" ? inArray(decisions.id, db.select({ id: decisionTargetIssues.decisionId })
             .from(decisionTargetIssues).where(eq(decisionTargetIssues.issueId, scope.id!))) : undefined,
-          scope.cursor ? sql`(${decisions.expiresAt}, ${decisions.id}) > (${scope.cursor.expiresAt.toISOString()}::timestamptz, ${scope.cursor.id}::uuid)` : undefined,
+          scope.cursor ? sql`(${decisions.expiresAt}, ${decisions.id}) > (${scope.cursor.expiresAt}::timestamptz, ${scope.cursor.id}::uuid)` : undefined,
         )).orderBy(asc(decisions.expiresAt), asc(decisions.id)).limit(limit);
         inspected += Math.max(1, rows.length);
         for (const row of rows) {
@@ -61,7 +76,7 @@ export function decisionTargetService(db: Db, expire: ReturnType<typeof decision
             const retry = `decision:${row.id}`;
             if (!scopes.has(retry)) scopes.set(retry, { kind: "decision", id: row.id });
           }
-          scope.cursor = { expiresAt: row.expiresAt, id: row.id };
+          scope.cursor = { expiresAt: row.cursorExpiresAt, id: row.id };
         }
         if (rows.length === limit && !scopes.has(key)) scopes.set(key, scope);
       } catch (error) {

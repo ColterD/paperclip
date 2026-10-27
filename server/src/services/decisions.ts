@@ -1,5 +1,4 @@
-import { decisionTargetService } from "./decision-targets.js";
-import { notifyDecisionTargetWork } from "./decision-target-work.js";
+import { decisionTargetService, notifyDecisionTargetWork } from "./decision-targets.js";
 import { randomUUID } from "node:crypto";
 import { and, asc, count, desc, eq, gt, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";

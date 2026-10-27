@@ -718,3 +718,12 @@ when public MCP is configured, even when Grok is disabled. Include this in the
 full stack as slice 13, separately from decision retention. The disabled baseline
 issued three settings queries in 3.2 seconds. Its durable prepared dispatches,
 atomic claim, and existing uncertain-outcome policy must remain authoritative.
+
+Slice 12 review repair: deletion captures affected open decision IDs under an
+issue-row lock before links cascade. Ordinary cleanup without linked decisions
+and empty-company deletion no longer signal global work. PostgreSQL text cursors
+preserve microsecond precision. Four real regressions failed before repair;
+removing the new lock also failed a controlled concurrent-proposal test. All
+246 target/routine/decision/effect/expiry/startup/deadline cases and server
+types/build pass. The existing restrictive company-deletion FKs and explicit
+combined-service compatibility path remain documented. Fresh head gates required.
