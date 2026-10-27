@@ -148,3 +148,11 @@ no pending migrations and the parent journal remains an exact prefix. Extra
 upstream embedded-only tests attempted during parent integration could not
 initialize locally; fresh CI must cover that environment, as recorded in the
 archive parent PR.
+
+
+Normal integration with master-target continuation parent `18f682863c` preserves
+expiry, deadline and producer implementations exactly. All 61 expiry/startup/
+scoped-deadline cases and server types/build pass with the rebuilt Runner vendor.
+The previous full 130-case selection remains evidence at its stated revision.
+No migration SQL changed, and five generated snapshots remain. Fresh head CI
+and reviews are required after this parent integration.

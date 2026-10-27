@@ -75,7 +75,9 @@ mutations. Qualify a useful model task separately from saving the account.
 ### `session`
 
 For a repository project that inherits storage-plugin defaults, run a task and
-send two follow-ups. Binding the workspace must preserve the effective policy,
+send two follow-ups. Start with unset task workspace settings, then repeat with
+an explicit isolated mode or strategy. Binding must save `reuse_existing` and
+the resolved mode without changing the effective policy,
 session fingerprint, and workspace identity. An actual project-policy change
 must still reset the session and preserve the stored workspace owner. The
 [session admission regression](../../server/src/__tests__/heartbeat-session-preparation.test.ts)
