@@ -988,3 +988,14 @@ All 26 lifecycle cases and all 311 cases across eight complete consumer suites,
 server types/build, schema drift, migration safety and fresh apply/replay pass.
 Index 0392 is generated after all 390 unchanged parent journal entries; five
 snapshots remain. Current parent is `679f523d78`; fresh head gates remain required.
+
+
+Slice 14 wake-amplification follow-up: ordinary approval/link/revision/resubmit
+writes no longer notify tool reviews. Approve/reject/cancel retain their existing
+terminal wake contract. Retention uses a thirty-second aggregate notification
+budget, with known deadlines preempting and no idle recurring scan. Three real
+regressions failed before repair. A broad run also caught a removed cancellation
+producer (313 pass/1 fail); it is restored. All 315 cases in eight complete suites,
+including 30 worker cases, and server types/build pass at `dd844f4e8c`. Prior
+coalescing-fixture, security and Greptile service failures remain in the owning
+audit. Fresh exact-head checks and reviews are required on publication.
