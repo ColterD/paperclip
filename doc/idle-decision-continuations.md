@@ -172,3 +172,13 @@ boundary through the existing quiet assertion. No production hold was removed.
 All 293 integrated cases across decisions, archive, gateway/projection, startup
 and scoped-deadline suites pass without skips; server types/build pass. Fresh
 security review, Greptile, Ponytail and exact-head CI remain merge gates.
+
+
+The archive contention regression no longer waits a fixed 100 ms. A dedicated
+single-connection contender signals its decision read; two FIFO SQL round trips
+then establish that it reached shared execution while the first archive remains
+held. The test requires one contender decision read and one archive execution.
+Temporarily removing the effect-flight guard made this test fail (two reads);
+restoring the production guard passes. The mutation was restored before commit.
+This verifies actual cross-pool contention without a timing delay or a new
+production-only test hook.

@@ -263,14 +263,28 @@ describePg("decisionService", () => {
     let second: ReturnType<typeof decide> | undefined;
     try {
       await vi.waitFor(() => expect(archived).toBe(true));
-      second = decide();
-      await new Promise(resolve => setTimeout(resolve, 100));
-      release();
-      const results = await Promise.all([first, second]);
-      expect(results.map(result => result.executionStatus)).toEqual(["succeeded", "succeeded"]);
-      expect(calls).toBe(1); expect(wakes).toHaveLength(1);
-      const [state] = await db.select().from(decisionRetention);
-      expect(state.archiveVersion).toBe(1); expect(state.archivedAt).not.toBeNull();
+      await withDedicatedDbConnection(db, async contender => {
+        let observed!: () => void;
+        const readStarted = new Promise<void>(resolve => { observed = resolve; });
+        let decisionReads = 0;
+        contender.$client.options.debug = (_id, query) => {
+          if (/^select/i.test(query) && query.includes('from "decisions"')) { decisionReads++; observed(); }
+        };
+        try {
+          second = decisionService(contender, { wakeOriginAgent: async input => { wakes.push(input); } })
+            .decide({ id: row.id, optionId: "archive", decidedByUserId, userActor: boardActor() });
+          await readStarted;
+          await contender.execute(sql`select 1`);
+          await contender.execute(sql`select 1`);
+          expect(decisionReads).toBe(1);
+          release();
+          const results = await Promise.all([first, second]);
+          expect(results.map(result => result.executionStatus)).toEqual(["succeeded", "succeeded"]);
+          expect(calls).toBe(1); expect(wakes).toHaveLength(1);
+          const [state] = await db.select().from(decisionRetention);
+          expect(state.archiveVersion).toBe(1); expect(state.archivedAt).not.toBeNull();
+        } finally { release(); await Promise.allSettled([first, ...(second ? [second] : [])]); }
+      });
     } finally { release(); await Promise.allSettled([first, ...(second ? [second] : [])]); factory.mockRestore(); }
   });
 
