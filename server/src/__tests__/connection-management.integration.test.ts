@@ -842,6 +842,8 @@ describe("connection management with production default agents", () => {
         });
         const path = `/chat-endpoints/${created.body.id}/slack/test-message`;
         if (rate) {
+          // Keep both calls in one rate window even when CI crosses a minute boundary.
+          vi.useFakeTimers({ toFake: ["Date"] });
           // Shared buckets admit one actual send, while each principal's own
           // limit also prevents the next send. Neither may consume twice.
           expect(await f.request("POST", path, { requestId: randomUUID(), slackUserId: "UHUMAN" }, f.jwt), mode)
@@ -856,7 +858,7 @@ describe("connection management with production default agents", () => {
         expect(sends, mode).toBe(rate ? 1 : 0);
         const audit = await server.db.select().from(toolAccessAuditEvents).where(eq(toolAccessAuditEvents.companyId, f.companyId));
         expect(audit.some(event => event.details.agentId === f.agentId && event.actorId === f.agentId), mode).toBe(true);
-      } finally { provider = null; }
+      } finally { vi.useRealTimers(); provider = null; }
     }
   }, 90_000);
 
