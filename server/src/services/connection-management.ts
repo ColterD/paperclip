@@ -3,7 +3,7 @@ import { isUuidLike } from "@paperclipai/shared";
 import { agents, agentApiKeys, heartbeatRuns, runIdentityContexts, issues, projects, toolApplications, toolCatalogEntries, toolConnections, toolConnectionInstalls, toolProfiles, toolProfileEntries, toolProfileBindings, toolMcpGateways, aiConnectionPools, connectionGrants, routines, type Db } from "@paperclipai/db";
 import { forbidden } from "../errors.js";
 import { authorizationService, canActorReadIssuePrivacy, canActorReadProjectPrivacy, type AuthorizationActor, type AuthorizationDecision } from "./authorization.js";
-import { captureRunIdentity } from "./run-identity.js";
+import { captureRunIdentity, runIdentityTaskFields, type RunIdentityCapture } from "./run-identity.js";
 import type { LogActivityInput } from "./activity-log.js";
 import type { ConnectionManagementAction, ConnectionManagementResource } from "./connection-management-policy.js";
 
@@ -17,7 +17,7 @@ export type ConnectionManagementContext = {
   reauthorize: (continuation?: { afterHumanAction: true }) => Promise<void>;
 };
 
-type CapturedConnectionRun = Omit<Awaited<ReturnType<typeof captureRunIdentity>>, "context"> & { context: Awaited<ReturnType<typeof captureRunIdentity>>["context"] | null };
+type CapturedConnectionRun = RunIdentityCapture<"task_authorization">;
 const connectionReadRuns = new WeakMap<ConnectionManagementContext, CapturedConnectionRun>();
 
 export function responsibleConnectionUser(actor: AuthorizationActor): string | null {
@@ -51,12 +51,12 @@ export function connectionManagementService(db: Db) {
         const reusable = options.capabilityProbe && !options.afterHumanAction && options.readContext?.actor === actor && options.readContext.resource.companyId === resource.companyId
           ? connectionReadRuns.get(options.readContext) : undefined;
         const captured = reusable ?? (options.afterHumanAction ? await (async () => {
-          const [run] = await db.select().from(heartbeatRuns).where(and(eq(heartbeatRuns.id, actor.runId!), eq(heartbeatRuns.agentId, actor.agentId!), eq(heartbeatRuns.companyId, resource.companyId)));
+          const [run] = await db.select(runIdentityTaskFields).from(heartbeatRuns).where(and(eq(heartbeatRuns.id, actor.runId!), eq(heartbeatRuns.agentId, actor.agentId!), eq(heartbeatRuns.companyId, resource.companyId)));
           if (!run || !["running", "succeeded"].includes(run.status)) throw forbidden("The originating run cannot continue this authentication");
           const [pending] = await db.select().from(runIdentityContexts).where(and(eq(runIdentityContexts.runId, run.id), eq(runIdentityContexts.status, "pending")));
           if (pending) throw forbidden("Run identity is being reconciled");
           return { run, context: null };
-        })() : await captureRunIdentity(db, { companyId: resource.companyId, agentId: actor.agentId, runId: actor.runId }));
+        })() : await captureRunIdentity(db, { companyId: resource.companyId, agentId: actor.agentId, runId: actor.runId }, { readScope: "task_authorization" }));
         capturedRun = captured;
         const { run, context } = captured;
         if ((context?.responsibleUserId ?? run.responsibleUserId) !== responsibleUserId) throw forbidden("Run responsible-user authority has changed");

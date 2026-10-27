@@ -18,7 +18,7 @@ Do not mark an item done from a timer removal or a green check alone.
 | 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Retention pending; notification delivery implemented in slice 08, PR pending |
 | 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Pending |
 | 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | Pending |
-| 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Secret proposals: [#17446](https://github.com/paperclipai/paperclip/pull/17446), merged; gateway credentials: [#17450](https://github.com/paperclipai/paperclip/pull/17450), merged; pending tool-review expiry: [#17453](https://github.com/paperclipai/paperclip/pull/17453), merged; approved recovery: [#17454](https://github.com/paperclipai/paperclip/pull/17454), historical argument identity repair verified and awaiting fresh CI/review; other review duties pending |
+| 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Secret proposals: [#17446](https://github.com/paperclipai/paperclip/pull/17446), merged; gateway credentials: [#17450](https://github.com/paperclipai/paperclip/pull/17450), merged; pending tool-review expiry: [#17453](https://github.com/paperclipai/paperclip/pull/17453), merged; approved recovery: [#17454](https://github.com/paperclipai/paperclip/pull/17454), merged after current-head CI and both 5/5 reviews; interrupted claims: [#17458](https://github.com/paperclipai/paperclip/pull/17458), merged after current-head CI and both 5/5 reviews; projection: [#17468](https://github.com/paperclipai/paperclip/pull/17468), interaction-link index verified and awaiting fresh CI/review |
 | 08 | GitHub connection events and continuity | Event discovery/replay and credential continuity separately | Pending |
 | 09 | Merged-PR confirmations | Candidate writes, webhook activation where supported, outstanding-candidate fallback | Pending |
 | 10 | External-object refresh | Configuration changes, refresh deadlines, source events | Pending |
@@ -304,25 +304,35 @@ initial missing-state bug and referenced-key fixture failure are recorded in the
 behavior document. Build and additional consumer regressions are running; no
 seventh PR is claimed ready yet.
 
-Fresh parent evidence: #17454 at `7a1cf03e62` and #17458 at `85003a7ac4` have
-passing CI test/build matrices and Greptile 5/5 with no unresolved findings.
-Their additional Paperclip Review checks are still queued/running. The first
-six PRs remain open; the full inventory is still in scope. Master inspected
-at `410e5c6eed` retains these recurring duties and has no migration-number
-collision (its latest journal entry is 0377).
+Historical parent evidence at the initial migration: #17454 at `7a1cf03e62`
+and #17458 at `85003a7ac4` passed the recorded CI matrices and Greptile review.
+Those snapshots preceded their current-head review and landing. The first six
+stack PRs have now merged. The full remaining inventory is still in scope.
 
-Slice 07 final local verification: 815 selected tests pass, workspace typecheck
-and build pass. One initial interaction cleanup-hook timeout is recorded in
+Initial slice 07 local verification: 815 selected tests passed, with workspace
+typecheck and build passing. One initial interaction cleanup-hook timeout is recorded in
 the behavior document; the complete isolated suite then passed. Both parent
 PRs #17454 and #17458 now have every check passed and are mergeable, including
 the additional Paperclip Review checks. Full CI/review for slice 07 is next.
 
 
+Slice 07 current integration: master `f6bc653f7f` contains the first six landed
+slices and the independent identity/resume/sidebar performance work. This slice
+adds generated concurrent interaction-link index migration `0386_steady_epoch`
+and retains five schema snapshots. Projection worker passes stop at 500 rows,
+honor abort/drain between rows, and resume past failed or unprojectable pages;
+empty reconstruction clears obsolete cursors. Six real regressions failed before
+the fixes. All 320 integrated gateway/projection/startup/deadline/identity/HTTP
+cases, server types and build pass; 35 independent master files are preserved
+exactly. Current-head CI and Greptile/Ponytail review remain required. Earlier
+case counts above describe the broader selections at their original revisions.
+
+
 ## Slice 08: decision-archive notification delivery
 
-Projection repair is #17468, head `0956883a84`, with Greptile 5/5 and no open
-findings. Latest checks are running with no failure. Slice 08 is based on that
-branch and separates archive notification delivery from retention scanning.
+Projection repair is #17468. Its bounded master integration passes local
+acceptance and awaits fresh checks and review. Slice 08 builds on that branch
+and separates archive notification delivery from retention scanning.
 The existing auto-archive transaction is the sole outbox producer. A committed
 enqueue wakes delivery; pending rows retain retries and delivering rows retain
 their saved five-minute claim deadline. Delivered history is quiet.
