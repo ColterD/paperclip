@@ -4,6 +4,7 @@ export { CURSOR_DISTRIBUTION_PINS } from "./drivers/acpx/generated-profiles.js";
 export * from "./contracts/control-plane-port.js";
 export * from "./contracts/completion-result.js";
 export * from "./contracts/codex.js";
+export * from "./contracts/provider-performance.js";
 export * from "./contracts/durable-recovery.js";
 export * from "./contracts/harness-driver.js";
 export * from "./contracts/local-runner.js";

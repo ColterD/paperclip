@@ -17,6 +17,7 @@ import { assertExternalNativeRunAuthority } from "./external-native-authority.js
 import { stageRemoteLaunchAssets } from "./remote-launch-assets.js";
 import { createRunPreparationTiming } from "../execution-preparation-timing.js";
 import { configuredEnvironment } from "../../vendor/paperclip-runner/index.js";
+import { parseProviderPerformanceSpans } from "../../vendor/paperclip-runner/index.js";
 import { apiKeyBillingType } from "@paperclipai/adapter-utils/api-billing-type";
 import { agents } from "@paperclipai/db";
 import { isCloudManagedInstance } from "../cloud-instance.js";
@@ -204,6 +205,7 @@ import {
   createNativeRunTrace,
   isNativeRunRootHistoricalSpan,
   nativeRunPreparationStarts,
+  recordNativeProviderPerformanceSpans,
   type NativeRunHistoricalSpan,
   type NativeRunSpanScope,
   type NativeRunTrace,
@@ -8527,6 +8529,9 @@ async function executePaperclipNativeSessionWithinScope(
       assertControllerActive,
       assertRunAdmissionActive,
       onCommittedEvent: async (event) => {
+        if (event.eventType === "harness.diagnostic") {
+          await recordNativeProviderPerformanceSpans(trace, parseProviderPerformanceSpans(event.payload, Date.now()));
+        }
         const textKind = !firstTokenRecorded ? observeDeliverableText(event) : null;
         if (textKind) {
           firstTokenRecorded = true;

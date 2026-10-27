@@ -154,6 +154,7 @@ export const resolveSourceCodexHome = runner.resolveSourceCodexHome;
 export const resolveCodexCommand = runner.resolveCodexCommand;
 export const resolvePinnedCodexCommand = runner.resolvePinnedCodexCommand;
 export const validatePrpEvent = runner.validatePrpEvent;
+export const parseProviderPerformanceSpans = runner.parseProviderPerformanceSpans;
 export const validatePrpStructuredRunResult =
   runner.validatePrpStructuredRunResult;
 
