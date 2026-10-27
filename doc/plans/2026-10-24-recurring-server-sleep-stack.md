@@ -780,3 +780,12 @@ Slice 13 final local verification also passes all 154 affected settings cases
 checks/replay, and a generic-plan query probe with 40,000 completed dispatches.
 Both queries use the prepared-only partial index with six shared buffers,
 including the routine join. Remote CI/review remain required.
+
+
+Slice 13 normally integrates target parent `85ce6545bf`. Its Grok implementation
+is unchanged; migration 0391 is regenerated after the current parent's history.
+All 389 parent journal entries are preserved and five snapshots remain. All 273
+cases across nine complete dispatch/qualification/startup/deadline/settings
+suites, server types/build, schema drift, migration safety and fresh apply/replay
+pass. Prior browser fixture-cleanup failure evidence remains in its owning audit.
+Fresh current-head CI and Greptile/Ponytail are required before merge.
