@@ -189,6 +189,16 @@ conversational resolution with a genuine later same-task user message supplies
 acceptance; an agent-only resolution does not. A plan approval must name the
 current same-task revision. Newer pending/rejected proposals stop new creation.
 Already admitted task replay and ordinary delegation retain their existing rules.
+
+Native `paperclip_finish` does not grant completion authority from an opening
+answer. The onboarding parent requires a trusted saved human decision on its
+latest proposal. Acceptance permits completion under the existing policy;
+rejection permits acknowledgment and closure without authorizing new work.
+The native status commit checks this decision again under its existing task/run
+locks. This adds no new agent endpoint or cross-company authority. The
+[native completion controls](../../server/src/services/native-runtime/paperclip-control-plane-port.test.ts)
+check persisted outcomes on disposable PostgreSQL; they are not live Cloud
+credential or onboarding qualification.
 Source: [creation admission](../../server/src/services/onboarding-first-task-admission.ts).
 Controls: [native/REST PostgreSQL regressions](../../server/src/__tests__/onboarding-first-task-admission.test.ts).
 These controls do not qualify a live Cloud provider journey.
