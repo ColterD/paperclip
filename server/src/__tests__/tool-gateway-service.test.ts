@@ -45,7 +45,7 @@ import { initializeRunIdentity, reserveSteeredIdentity, reconcileSteeredIdentity
 import { issueService } from "../services/issues.js";
 import { approvalService } from "../services/approvals.js";
 import { commitToolActionReview } from "../services/tool-action-review.js";
-import { claimToolTestApproval, releaseToolApproval, startToolInvocation } from "../services/tool-approval-execution.js";
+import { bindVerifiedToolApprovalArguments, claimToolTestApproval, releaseToolApproval, startToolInvocation } from "../services/tool-approval-execution.js";
 import { materializeNativeInteractionResponses } from "../services/native-runtime/native-interaction-bridge.js";
 import { toolActionDeliveryService } from "../services/tool-action-delivery.js";
 import { secretService } from "../services/secrets.js";
@@ -54,7 +54,7 @@ import {
   createToolGatewayService,
   ToolGatewayHttpError,
 } from "../services/tool-gateway.js";
-import { canonicalToolArguments, signToolArguments } from "../services/tool-content-guards.js";
+import { canonicalToolArguments, readSignedToolArgumentsPayload, signToolArguments, summarizeToolValue, toolRequestIdentityHash } from "../services/tool-content-guards.js";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
@@ -670,6 +670,81 @@ describeEmbeddedPostgres("tool gateway service", () => {
         expect(counters[0]).toMatchObject({ limit: change === "increased" ? 3 : 1, remaining: 0 });
       });
 
+      it.each([
+        ...["agent", "test-tab"].flatMap(origin => ["valid", "new-rate", "invalid-signature", "foreign-hash", "foreground-rate", "foreground-invalid-signature", "foreground-foreign-hash", "foreground-modern-review-hash"]
+          .map(state => ({ origin, state }))),
+      ])("recovers historical preview-hash approval ($origin, $state)", async ({ origin, state }) => {
+        const remoteCall = providerFixture(); remoteCall.release();
+        const parameters = { value: "reviewed", apiKey: "synthetic-historical-approval-key" };
+        const foreground = state.startsWith("foreground-");
+        if (foreground) await db.insert(toolPolicies).values({ companyId: fixture.company.id,
+          name: "Already admitted historical action", policyType: "rate_limit", priority: 1,
+          selectors: {}, config: { limit: 1, windowSeconds: 3600, keyBy: ["company", "tool"] } });
+        const pending = origin === "agent" ? await agentRequest(remoteCall.provider, parameters)
+          : (await testRequest(remoteCall.provider, false, parameters)).pending;
+        const [originalInvocation] = await db.select().from(toolInvocations).where(eq(toolInvocations.id, pending.invocationId));
+        const payload = readSignedToolArgumentsPayload({ signedArguments: pending.signedArguments,
+          invocationId: pending.invocationId, toolName: originalInvocation.toolName, signingSecret: testToolActionSigningSecret })!;
+        expect(payload).not.toBeNull();
+        const legacyHash = summarizeToolValue(payload.arguments).sha256!;
+        const completeHash = toolRequestIdentityHash(payload.arguments, testToolActionSigningSecret);
+        expect(legacyHash).not.toBe(completeHash);
+        const storedHash = state.endsWith("foreign-hash") ? "e".repeat(64) : legacyHash;
+        await db.update(toolInvocations).set({ argumentsHash: storedHash }).where(eq(toolInvocations.id, pending.invocationId));
+        await db.update(toolActionRequests).set({ canonicalArgumentsHash: state === "foreground-modern-review-hash" ? completeHash : legacyHash,
+          ...(["invalid-signature", "foreground-invalid-signature"].includes(state) ? { signedArguments: "unreadable-old-signature" } : {}),
+        }).where(eq(toolActionRequests.id, pending.id));
+        if (state === "new-rate") await db.insert(toolPolicies).values({ companyId: fixture.company.id,
+          name: "New admission for historical approval", policyType: "rate_limit", priority: 1,
+          selectors: {}, config: { limit: 1, windowSeconds: 3600, keyBy: ["company", "tool"] } });
+        const counters = foreground ? await db.select().from(toolRateLimitCounters) : [];
+        if (foreground) {
+          expect(counters).toEqual([expect.objectContaining({ remaining: 0 })]);
+          const approval = gateway.approveActionRequest({ companyId: fixture.company.id,
+            actionRequestId: pending.id, actor: { userId: "board" } });
+          if (state === "foreground-invalid-signature") await expect(approval).rejects.toMatchObject({ reasonCode: "action_request_invalidated" });
+          else if (state === "foreground-foreign-hash" && origin === "agent") await expect(approval).rejects.toMatchObject({ reasonCode: "rate_limited" });
+          else await approval;
+        } else await approve(pending);
+        await startRecovery(); await settle();
+        if (state === "valid" || state === "new-rate" || state === "foreground-rate" || state === "foreground-modern-review-hash") {
+          await executed(pending);
+          expect((await db.select().from(toolInvocations))[0].argumentsHash).toBe(completeHash);
+          expect(remoteCall.provider).toHaveBeenCalledOnce();
+          expect(JSON.parse(String(remoteCall.provider.mock.calls[0][1].body)).params.arguments).toEqual(parameters);
+          if (state === "new-rate") expect(await db.select().from(toolRateLimitCounters))
+            .toEqual([expect.objectContaining({ limit: 1, remaining: 0 })]);
+        } else {
+          expect((await db.select().from(toolActionRequests))[0].status)
+            .toBe(["invalid-signature", "foreground-invalid-signature"].includes(state) ? "cancelled"
+              : state === "foreground-foreign-hash" && origin === "agent" ? "pending" : "failed");
+          expect((await db.select().from(toolInvocations))[0].argumentsHash).toBe(storedHash);
+          expect(remoteCall.provider).not.toHaveBeenCalled();
+        }
+        if (foreground) expect(await db.select().from(toolRateLimitCounters)).toEqual(counters);
+        await quiet();
+      });
+
+      it("does not rebind historical arguments after the execution claim is replaced", async () => {
+        const remoteCall = providerFixture(); remoteCall.release();
+        const pending = await agentRequest(remoteCall.provider, { value: "reviewed", apiKey: "synthetic-stale-claim-key" });
+        const [invocation] = await db.select().from(toolInvocations).where(eq(toolInvocations.id, pending.invocationId));
+        const payload = readSignedToolArgumentsPayload({ signedArguments: pending.signedArguments,
+          invocationId: invocation.id, toolName: invocation.toolName, signingSecret: testToolActionSigningSecret })!;
+        const preview = summarizeToolValue(payload.arguments).sha256;
+        const verified = toolRequestIdentityHash(payload.arguments, testToolActionSigningSecret);
+        await db.update(toolInvocations).set({ argumentsHash: preview }).where(eq(toolInvocations.id, invocation.id));
+        await db.update(toolActionRequests).set({ canonicalArgumentsHash: preview }).where(eq(toolActionRequests.id, pending.id));
+        await approve(pending);
+        const claim = (await claimToolTestApproval(db, pending.id, invocation.id))!;
+        expect(claim).not.toBeNull();
+        await db.update(toolActionRequests).set({ updatedAt: new Date(claim.claimedAt.getTime() + 1) })
+          .where(eq(toolActionRequests.id, pending.id));
+        expect(await bindVerifiedToolApprovalArguments(db, claim, { preview, verified })).toBe(false);
+        expect((await db.select().from(toolInvocations))[0].argumentsHash).toBe(preview);
+        expect(remoteCall.provider).not.toHaveBeenCalled();
+      });
+
       it("reconstructs a saved approved action after restart", async () => {
         const pending = await request(); await approve(pending);
         await startRecovery(); await settle(); await executed(pending); await quiet();
@@ -883,6 +958,38 @@ describeEmbeddedPostgres("tool gateway service", () => {
         draining = false; await settle(); await executed(pending); await quiet();
       });
 
+      async function testRequest(provider: NonNullable<ToolGatewayServiceOptions["remoteHttpRequest"]>, rateLimited = false, parameters: Record<string, unknown> = { value: "reviewed" }) {
+        await db.insert(companyMemberships).values({ companyId: fixture.company.id, principalType: "user",
+          principalId: "board", status: "active", membershipRole: "owner" });
+        const remote = await createRemoteMcpToolFixture(db, fixture.company.id);
+        await db.update(toolCatalogEntries).set({ isReadOnly: false, riskLevel: "write" })
+          .where(eq(toolCatalogEntries.id, remote.catalogEntry.id));
+        await db.insert(toolPolicies).values({ companyId: fixture.company.id, name: "Review connected writes",
+          policyType: "require_approval", priority: 10, selectors: { connectionId: remote.connection.id } });
+        if (rateLimited) await db.insert(toolPolicies).values({ companyId: fixture.company.id, name: "One reviewed test call",
+          policyType: "rate_limit", priority: 1, selectors: { connectionId: remote.connection.id },
+          config: { limit: 1, windowSeconds: 3600, keyBy: ["agent", "tool"] } });
+        gateway = createTestToolGatewayService(db, { remoteHttpRequest: provider });
+        const result = await gateway.executeTestCall({ companyId: fixture.company.id, connectionId: remote.connection.id,
+          agentId: fixture.agent.id, userId: "board", toolName: "needs_input", parameters });
+        expect(result.decision).toBe("ask_first");
+        const [pending] = await db.select().from(toolActionRequests);
+        return { pending, remote };
+      }
+      function providerFixture() {
+        let release!: () => void, entered!: () => void;
+        const gate = new Promise<void>(resolve => { release = resolve; });
+        const started = new Promise<void>(resolve => { entered = resolve; });
+        const provider = vi.fn(async (_url, init) => {
+          const payload = JSON.parse(String(init.body));
+          expect(payload.method).toBe("tools/call");
+          entered(); await gate;
+          return Response.json({ jsonrpc: "2.0", id: payload.id,
+            result: { content: [{ type: "text", text: "Saved once" }] } });
+        });
+        return { provider, release, started };
+      }
+
       it.each(["foreground", "recovery"] as const)("retries a Test-tab %s approval after a real pre-dispatch database timeout", async mode => {
         const remoteCall = providerFixture(); remoteCall.release();
         const { pending } = await testRequest(remoteCall.provider); await approve(pending);
@@ -921,7 +1028,7 @@ describeEmbeddedPostgres("tool gateway service", () => {
         expect(remoteCall.provider).toHaveBeenCalledOnce();
       }, 15_000);
 
-      async function agentRequest(provider: NonNullable<ToolGatewayServiceOptions["remoteHttpRequest"]>) {
+      async function agentRequest(provider: NonNullable<ToolGatewayServiceOptions["remoteHttpRequest"]>, parameters: Record<string, unknown> = { value: "reviewed" }) {
         const remote = await createRemoteMcpToolFixture(db, fixture.company.id);
         await db.update(toolCatalogEntries).set({ isReadOnly: false, riskLevel: "write" })
           .where(eq(toolCatalogEntries.id, remote.catalogEntry.id));
@@ -930,7 +1037,7 @@ describeEmbeddedPostgres("tool gateway service", () => {
         gateway = createTestToolGatewayService(db, { remoteHttpRequest: provider });
         const session = await gateway.createSession(runSessionInput(fixture.company, fixture.agent, fixture.run));
         const tool = (await gateway.listToolsForSession(session.token)).find(t => t.connectionId === remote.connection.id)!;
-        await expect(gateway.executeTool({ sessionToken: session.token, tool: tool.name, parameters: { value: "reviewed" } }))
+        await expect(gateway.executeTool({ sessionToken: session.token, tool: tool.name, parameters }))
           .rejects.toMatchObject({ reasonCode: "approval_required" });
         const [pending] = await db.select().from(toolActionRequests);
         return pending;
