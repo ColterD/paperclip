@@ -15,11 +15,11 @@ Do not mark an item done from a timer removal or a green check alone.
 | 01 | Custom-image setup expiry | Session writes, existing expiry, startup/retry/drain | [#17443](https://github.com/paperclipai/paperclip/pull/17443), merged after CI and passing reviews |
 | 02 | Remaining chat maintenance | Provider runtime discovery; voice reconciliation; milestones; wake notices; interaction continuations; terminal confirmations; GitHub recovery; Teams maintenance, separately by owner | Pending |
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
-| 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Retention pending; notification delivery: [#17475](https://github.com/paperclipai/paperclip/pull/17475), all checks passed (Paperclip Review skipped), Greptile 5/5 at `692e3ee02c` |
-| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations: [#17478](https://github.com/paperclipai/paperclip/pull/17478), review repairs under verification; expiry branch in progress; effects and target invalidation pending |
+| 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Retention pending; archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged after exact-head 5/5 reviews and passing current CI |
+| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478), expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479), and effects [#17482](https://github.com/paperclipai/paperclip/pull/17482) await fresh current-head gates; target invalidation review repair remains in progress |
 
 | 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | Pending |
-| 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Secret proposals: [#17446](https://github.com/paperclipai/paperclip/pull/17446), merged; gateway credentials: [#17450](https://github.com/paperclipai/paperclip/pull/17450), merged; pending tool-review expiry: [#17453](https://github.com/paperclipai/paperclip/pull/17453), merged; approved recovery: [#17454](https://github.com/paperclipai/paperclip/pull/17454), merged after current-head CI and both 5/5 reviews; interrupted claims: [#17458](https://github.com/paperclipai/paperclip/pull/17458), merged after current-head CI and both 5/5 reviews; projection: [#17468](https://github.com/paperclipai/paperclip/pull/17468), interaction-link index verified and awaiting fresh CI/review |
+| 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Slices 02–07 merged: [secret proposals](https://github.com/paperclipai/paperclip/pull/17446), [credentials](https://github.com/paperclipai/paperclip/pull/17450), [review expiry](https://github.com/paperclipai/paperclip/pull/17453), [approved recovery](https://github.com/paperclipai/paperclip/pull/17454), [interrupted claims](https://github.com/paperclipai/paperclip/pull/17458), [projection](https://github.com/paperclipai/paperclip/pull/17468) |
 
 | 08 | GitHub connection events and continuity | Event discovery/replay and credential continuity separately | Pending |
 | 09 | Merged-PR confirmations | Candidate writes, webhook activation where supported, outstanding-candidate fallback | Pending |
@@ -484,3 +484,8 @@ pending recovery. All 293 integrated decision/archive/gateway/startup/deadline
 cases and server types/build pass. The incorrect expectation of zero active
 work during the coalescing window is recorded in the behavior document; the
 intent hold remains until reconciliation. Fresh security/CI/reviews required.
+
+Eight slices are merged after archive delivery #17475. Slice 09 now reconciles
+with its exact squash `5785090ff1`; all 31 independent master files are preserved.
+The 97 decision/startup/deadline cases and server types/build pass after the
+Runner vendor rebuild. Fresh master-target CI and reviews remain required.
