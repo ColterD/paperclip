@@ -509,3 +509,9 @@ startup/deadline cases, server types/build and snapshot drift pass. Own concurre
 index was regenerated as `0389_brave_hulk.sql`, preserving parent history. The
 initial startup-reconciliation assertion failure and corrected boundary are
 recorded in the owning behavior audit. Latest-head CI/reviews remain required.
+
+Final slice 10 parent integration passes 130 expiry/decision/archive/startup/
+deadline cases, server types/build and migration replay. The parent continuation
+coalescing and deterministic cross-pool contention regression remain intact.
+The archive parent now targets master after projection #17468 merged. Fresh
+current-head reviews and CI remain required in dependency order.

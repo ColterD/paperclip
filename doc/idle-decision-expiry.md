@@ -136,3 +136,15 @@ the exact saved future deadline, then still proves the decision does not expire
 early. The three production regressions and this fixture failure remain
 recorded; no error retry or business deadline was relaxed to pass the tests.
 Fresh current-head CI and reviews remain merge gates.
+
+
+After normal integration of continuation recovery's final coalescing and
+deterministic contention tests and pinned master `8161f2a813`, all 130 selected
+cases pass: 76 expiry/archive/startup/deadline cases plus all 54 decision cases.
+Server types/build pass. Existing notification coalescing remains thirty
+seconds for continuation recovery; expiry's successful backlog continuation is
+one second, and failure retry remains thirty seconds. Migration replay reports
+no pending migrations and the parent journal remains an exact prefix. Extra
+upstream embedded-only tests attempted during parent integration could not
+initialize locally; fresh CI must cover that environment, as recorded in the
+archive parent PR.
