@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { activityLog, agents, authUsers, companies, companyMemberships, createDb, decisionEffectExecutions,
+import { activityLog, agents, authUsers, companies, companyMemberships, createDb, subscribeDatabaseWork, decisionEffectExecutions,
   decisions, decisionRetention, decisionTargetIssues, heartbeatRuns, issueComments, issues } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { resolveExternalTestDatabaseUrl } from "./helpers/external-test-database.js";
@@ -11,6 +14,9 @@ import { registerDecisionContinuationWork } from "../services/decision-continuat
 import { createDeliveryWorkCoordinator } from "../services/delivery-work-coordinator.js";
 import { issueService } from "../services/issues.js";
 import { idleWorkSnapshot } from "../services/task-admission.js";
+import { DELIVERY_QUEUES } from "../services/delivery-work-notifications.js";
+import { deleteCompany } from "../services/company-deletion.js";
+import { notifyDecisionTargetIssueRemoval } from "../services/decision-targets.js";
 
 const externalUrl = resolveExternalTestDatabaseUrl("PAPERCLIP_DECISION_TARGETS_TEST_DATABASE_URL");
 const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTestSupport();
@@ -100,6 +106,90 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
   it("stays quiet with valid open decisions and wakes from the real terminal update", async () => {
     await start(); await quiet(); const row = await create(); await quiet();
     await change("done"); await expired(row.id, "target_completed"); await quiet(); expect(wake).toHaveBeenCalledTimes(1);
+  });
+
+  it("finishes startup paging across submillisecond expiry values", async () => {
+    const seed = await create(); await db.delete(decisionTargetIssues); await db.delete(decisions);
+    await db.insert(decisions).values(Array.from({ length: 101 }, () => ({ ...seed, id: randomUUID() })));
+    await db.execute(sql`update decisions set expires_at = date_trunc('milliseconds', now() + interval '1 day') + interval '456 microseconds'`);
+    const owner = service();
+    await owner.sweepInvalidTargets();
+    expect(owner.hasDecisionTargetWork()).toBe(true);
+    await owner.sweepInvalidTargets();
+    expect(owner.hasDecisionTargetWork()).toBe(false);
+    expect(wake).not.toHaveBeenCalled();
+  });
+
+  it("reaches a deleted target behind a full page of valid startup decisions", async () => {
+    const seed = await create(); await db.delete(decisionTargetIssues); await db.delete(decisions);
+    const invalidId = "ffffffff-ffff-4fff-afff-ffffffffffff";
+    const valid = Array.from({ length: 100 }, (_, index) => ({ ...seed,
+      id: `01000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      options: [{ id: "yes", label: "Yes", effects: [{ type: "comment_on_issue" as const, targetIssueId: originId, staleness: "strict" as const, bodyMarkdown: "hello" }] }],
+    }));
+    await db.insert(decisions).values([...valid, { ...seed, id: invalidId }]);
+    await db.insert(decisionTargetIssues).values({ companyId, decisionId: invalidId, issueId: targetId });
+    const owner = service();
+    await owner.sweepInvalidTargets();
+    expect(owner.hasDecisionTargetWork()).toBe(true);
+    const unsubscribe = subscribeDatabaseWork(db, DELIVERY_QUEUES.decisionTargets, (event, hints) => {
+      if (event === "settled") owner.decisionTargetsChanged(hints);
+    });
+    try {
+      await issueService(db).remove(targetId);
+      expect(await owner.sweepInvalidTargets()).toEqual({ expired: 1 });
+      expect((await owner.get(invalidId))?.metadata).toMatchObject({ expiredReason: "target_gone" });
+      expect(owner.hasDecisionTargetWork()).toBe(false);
+      expect(wake).toHaveBeenCalledTimes(1);
+    } finally { unsubscribe(); }
+  });
+
+  it("fences new target references between deletion discovery and commit", async () => {
+    let entered!: () => void, release!: () => void;
+    const discovered = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const removing = db.transaction(async tx => {
+      await notifyDecisionTargetIssueRemoval(tx, targetId);
+      entered(); await gate;
+      await tx.delete(issues).where(eq(issues.id, targetId));
+    });
+    let proposing: Promise<{ accepted: boolean }> | undefined;
+    try {
+      await discovered;
+      proposing = create().then(() => ({ accepted: true }), () => ({ accepted: false }));
+      await vi.waitFor(async () => {
+        const blocked = await db.execute(sql`select pid from pg_stat_activity where datname = current_database()
+          and pid <> pg_backend_pid() and wait_event_type = 'Lock' and query like '%decision_target_issues%'`);
+        expect(blocked).toHaveLength(1);
+      });
+      release(); await removing;
+      await expect(proposing).resolves.toEqual({ accepted: false });
+      expect(await db.select().from(decisions)).toEqual([]);
+      expect(wake).not.toHaveBeenCalled();
+    } finally { release(); await Promise.allSettled([removing, ...(proposing ? [proposing] : [])]); }
+  });
+
+  it("does not signal target work for removal with no linked decisions", async () => {
+    await create();
+    const unrelatedId = randomUUID();
+    await db.insert(issues).values({ id: unrelatedId, companyId, title: "Unrelated", status: "todo", responsibleUserId: userId });
+    const settled = vi.fn();
+    const unsubscribe = subscribeDatabaseWork(db, DELIVERY_QUEUES.decisionTargets, event => { if (event === "settled") settled(); });
+    try { await issueService(db).remove(unrelatedId); expect(settled).not.toHaveBeenCalled(); }
+    finally { unsubscribe(); }
+  });
+
+  it("does not launch global target work after deleting an empty company", async () => {
+    const emptyCompanyId = randomUUID();
+    await db.insert(companies).values({ id: emptyCompanyId, name: "Empty", issuePrefix: `E${emptyCompanyId.slice(0, 6)}` });
+    const home = await mkdtemp(join(tmpdir(), "decision-target-company-"));
+    vi.stubEnv("PAPERCLIP_HOME", home);
+    const settled = vi.fn();
+    const unsubscribe = subscribeDatabaseWork(db, DELIVERY_QUEUES.decisionTargets, event => { if (event === "settled") settled(); });
+    try {
+      expect(await deleteCompany(db, emptyCompanyId)).toMatchObject({ id: emptyCompanyId });
+      expect(settled).not.toHaveBeenCalled();
+    } finally { unsubscribe(); await rm(home, { recursive: true, force: true }); }
   });
 
   it("keeps lenient and intentional already-done proposals open and quiet", async () => {

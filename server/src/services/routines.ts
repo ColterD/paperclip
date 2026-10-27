@@ -1,4 +1,4 @@
-import { notifyDecisionTargetWork } from "./decision-target-work.js";
+import { notifyDecisionTargetIssueRemoval } from "./decision-targets.js";
 import { DELIVERY_QUEUES, notifyDeliveryWork } from "./delivery-work-notifications.js";
 import { verifyAppWebhook } from "./app-webhook.js";
 import crypto from "node:crypto";
@@ -1965,7 +1965,7 @@ export function routineService(
         return updated ?? createdRun;
       } catch (error) {
         if (createdIssue) {
-          await notifyDecisionTargetWork(txDb);
+          await notifyDecisionTargetIssueRemoval(txDb, createdIssue.id);
           await txDb.delete(issues).where(eq(issues.id, createdIssue.id));
         }
         const failureReason = error instanceof Error ? error.message : String(error);

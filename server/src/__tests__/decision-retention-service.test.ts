@@ -266,7 +266,7 @@ describePg("decision retention", () => {
       const replacementAt = new Date(Date.now() + 6 * 60_000);
       try { await db.update(decisionArchiveNotificationOutbox).set({ lastAttemptAt: replacementAt, attemptCount: 2 }); }
       finally { release(); }
-      expect((await first).delivered).toBe(0);
+      expect(await first).toEqual({ notifiedAgents: 0, delivered: 0 });
       expect((await db.select().from(decisionArchiveNotificationOutbox))[0]).toMatchObject({ status: "delivering", lastAttemptAt: replacementAt });
       await start(); expect(coordinator!.nextWakeAt()).toBe(replacementAt.getTime() + 5 * 60_000);
       await settle(12 * 60_000); await delivered(); await quiet();

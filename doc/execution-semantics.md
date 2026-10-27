@@ -19,6 +19,27 @@ Paperclip separates four concepts that are easy to blur together:
 
 The system works best when those are kept separate.
 
+### Onboarding first-task creation
+
+When an authenticated agent run serves the server-created `onboarding_first_task`,
+new task creation requires acceptance of its latest ordinary proposal. The same
+transactional admission applies to native `create_task` and REST issue/child
+creation. Choosing a different parent, including a standalone task, does not
+change the run's source task.
+
+Acceptance comes from a saved human card decision or a saved conversational
+resolution linked to a genuine later user comment on that task. Opening answers
+and clarification responses alone, agent-only decisions, and tool/credential
+approvals do not authorize the proposal. A newer pending or rejected proposal supersedes an
+older acceptance. A saved plan requires approval of its current document revision;
+checkbox decisions retain the user's actual selected scope.
+
+Planning documents, questions and proposal cards remain available before approval.
+Ordinary task delegation and previously committed task-creation replay retain
+their existing behavior, including dispatch recovery for already admitted work.
+This boundary governs new task creation; other execution and resource authorities
+continue to apply independently.
+
 ## 2. Assignee Semantics
 
 An issue has at most one assignee.

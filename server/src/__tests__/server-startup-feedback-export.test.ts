@@ -6,8 +6,9 @@ import { readIdleSleepSafety } from "../services/idle-sleep-safety.js";
 import * as idleLocalWork from "../services/idle-local-work.js";
 import { idleBackupWakeMarker, markIdleBackupWakeRequired } from "../services/idle-database-backup.js";
 import { DELIVERY_QUEUES } from "../services/delivery-work-notifications.js";
-import { decisionService, reconcileBuiltInAgentsOnStartup, reconcileCodexLocalManagedHomesOnStartup, reconcilePersistedRuntimeServicesOnStartup } from "../services/index.js";
-import { runDatabaseBackup } from "@paperclipai/db";
+import { decisionService, decisionRetentionService, reconcileBuiltInAgentsOnStartup, reconcileCodexLocalManagedHomesOnStartup, reconcilePersistedRuntimeServicesOnStartup } from "../services/index.js";
+
+import { companies, runDatabaseBackup, type Db } from "@paperclipai/db";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
@@ -347,7 +348,6 @@ vi.mock("../services/index.js", () => ({
     list: vi.fn(async () => ({ items: [], nextCursor: null })),
   })),
   decisionService: vi.fn(() => ({
-    sweepExpired: vi.fn(async () => ({ expired: 0 })),
     sweepInvalidTargets: vi.fn(async () => ({ expired: 0 })),
     decisionTargetsChanged: vi.fn(),
     hasDecisionTargetWork: vi.fn(() => false),
@@ -528,6 +528,40 @@ describe("startServer feedback export wiring", () => {
     createBetterAuthInstanceMock.mockReturnValue({});
     deriveAuthTrustedOriginsMock.mockReturnValue([]);
     process.env.BETTER_AUTH_SECRET = "test-secret";
+  });
+
+  it.each([false, true])("registers archive delivery separately from retention sweeps (scheduler %s)", async enabled => {
+    loadConfigMock.mockReturnValue(buildTestConfig({ heartbeatSchedulerEnabled: enabled, heartbeatSchedulerIntervalMs: 30000 }));
+    let tick: (() => void) | undefined;
+    const timer = vi.spyOn(globalThis, "setInterval").mockImplementation(((callback: () => void, interval: number) => {
+      if (interval === 30000) tick = callback;
+      return 1 as unknown as ReturnType<typeof setInterval>;
+    }) as typeof setInterval);
+    try {
+      await startServer(); await settleStartupHousekeeping();
+      const registration = deliveryWorkRegisterMock.mock.calls.find(([queue]) => queue === DELIVERY_QUEUES.decisionArchiveDelivery);
+      if (!enabled) {
+        expect(registration).toBeUndefined();
+        expect(decisionRetentionService).not.toHaveBeenCalled();
+        expect(tick).toBeDefined(); tick!(); await settleStartupHousekeeping();
+        expect(decisionRetentionService).not.toHaveBeenCalled();
+        return;
+      }
+      expect(registration).toBeDefined();
+      const retention = vi.mocked(decisionRetentionService).mock.results[0]!.value;
+      expect(retention.deliverNotifications).toHaveBeenCalledOnce();
+      expect(retention.nextArchiveNotificationAt).toHaveBeenCalledOnce();
+      const db = createDbMock.mock.results[0]!.value as Db;
+      const companyReads = () => vi.mocked(db.select).mock.results.filter(({ value }) =>
+        vi.mocked(value.from).mock.calls.some(([table]) => table === companies)).length;
+      const before = companyReads();
+      expect(before).toBeGreaterThan(0); expect(tick).toBeDefined();
+      tick!(); await settleStartupHousekeeping();
+      expect(companyReads()).toBeGreaterThan(before);
+      expect(retention.deliverNotifications).toHaveBeenCalledOnce();
+      await registration![1].run(new AbortController().signal);
+      expect(retention.deliverNotifications).toHaveBeenCalledTimes(2);
+    } finally { timer.mockRestore(); }
   });
 
   it("registers durable case handoffs independently of the heartbeat scheduler", async () => {
@@ -896,7 +930,6 @@ describe("startServer feedback export wiring", () => {
       expect(deliveryWorkRegisterMock.mock.calls.some(([queue]) => queue === DELIVERY_QUEUES.decisionExpiry)).toBe(true);
       expect(decisions.sweepInvalidTargets).toHaveBeenCalledTimes(1);
       expect(deliveryWorkRegisterMock.mock.calls.some(([queue]) => queue === DELIVERY_QUEUES.decisionTargets)).toBe(true);
-      expect(decisions.sweepExpired).not.toHaveBeenCalled();
     } finally {
       setIntervalSpy.mockRestore();
     }
