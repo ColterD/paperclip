@@ -329,11 +329,14 @@ their saved five-minute claim deadline. Delivered history is quiet.
 
 The implementation preserves the delivery API and payload. It fences stale
 completion by claim timestamp and orders unattempted/oldest-attempted pending
-rows so failed batches do not starve later work. No table or migration is added.
-See [archive delivery](../idle-decision-archive-delivery.md).
+rows so failed batches do not starve later work. No table is added. Generated
+migration `0387_boring_professor_monster.sql` adds the concurrent partial index
+for pending delivery order. See [archive delivery](../idle-decision-archive-delivery.md).
 
-All 54 selected tests pass, including 12 new real-PostgreSQL lifecycle cases.
-Workspace typecheck/build pass. Two added-fixture failures and their corrections
-are recorded in the behavior document. Full CI/review remains required.
+All 58 selected tests pass: 15 real-PostgreSQL retention/delivery cases, 42 startup
+cases and the shared deadline worker case. Migration checks, generated snapshot
+drift, server typecheck and build pass. The initial fixture failures, stale-claim
+counter regression and corrected disabled-mode expectation are recorded in the
+behavior document. Full current-head CI and both reviews remain required.
 Retention eligibility/scanning, decision expiry, effect recovery, and decision
 continuation delivery remain independent unfinished reasons in the full ledger.
