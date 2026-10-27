@@ -1,4 +1,4 @@
-import { claimToolTestApproval, releaseToolApproval, persistToolTestOutcome, startToolInvocation, type ToolApprovalClaim } from "./tool-approval-execution.js";
+import { bindVerifiedToolApprovalArguments, claimToolTestApproval, releaseToolApproval, persistToolTestOutcome, startToolInvocation, type ToolApprovalClaim } from "./tool-approval-execution.js";
 import { approvedToolReviewCompanies, prepareApprovedToolReview, recoverApprovedToolReviews } from "./tool-review-recovery.js";
 import { toolReviewExpiryService } from "./tool-review-expiry.js";
 import { writeToolReviewChange } from "./tool-review-work-notifications.js";
@@ -7781,6 +7781,15 @@ export function createToolGatewayService(
       ![408, 425, 429].includes(error.status);
   }
 
+  async function bindVerifiedApprovalArguments(invocation: typeof toolInvocations.$inferSelect, claim: ToolApprovalClaim, parameters: unknown) {
+    const preview = summarizeToolValue(parameters).sha256;
+    const verified = toolRequestIdentityHash(parameters, options.toolActionSigningSecret);
+    if (invocation.argumentsHash === preview && invocation.argumentsHash !== verified &&
+      !await bindVerifiedToolApprovalArguments(db, claim, { preview, verified })) {
+      throw new ToolGatewayHttpError(409, "Tool action execution claim is no longer current", "action_already_consumed");
+    }
+  }
+
   async function runApprovedTestInvocation(
     invocation: typeof toolInvocations.$inferSelect,
     signedPayload: NonNullable<ReturnType<typeof readSignedToolArgumentsPayload>>,
@@ -7821,6 +7830,7 @@ export function createToolGatewayService(
       if (!(await approvedManagedArgumentsRemainCurrent(session, tool, signedPayload.arguments))) {
         throw new ToolGatewayHttpError(409, "Approved tool action managed arguments changed after review", "approved_tool_managed_arguments_changed");
       }
+      await bindVerifiedApprovalArguments(invocation, claim, signedPayload.arguments);
       const access = await basePolicyService.admitInvocation(
         policyInputForTool({ session, tool, parameters: signedPayload.arguments, consumeRateLimit: false }),
         invocation.id,
@@ -8342,6 +8352,7 @@ export function createToolGatewayService(
       })).summary;
       // Validate the signed and managed payload before consuming admission.
       // Historical payload drift belongs to the expiry owner above.
+      await bindVerifiedApprovalArguments(invocation, claim, signedPayload.arguments);
       const currentAccess = await policyService.admitInvocation(
         policyInputForTool({
           session,

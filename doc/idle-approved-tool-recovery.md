@@ -286,3 +286,37 @@ The final fixture uses a new live run with the original responsible user. A reus
 full-suite database also retained a conflicting Slack bot identity; final acceptance
 uses a fresh isolated database. These are local checks, not current-head CI or a
 host-suspension qualification.
+
+
+## Historical argument identity compatibility repair
+
+Earlier invocations stored the hash of their redacted argument preview. Modern
+admission correctly requires the complete request identity, including a keyed hash
+for sensitive arguments. The gateway already verified signed historical arguments,
+but admission rejected their saved preview hash even with no rate policy. That
+permanently failed an otherwise valid approval before the provider call.
+
+Both agent-origin and Test-tab preparation now bind the verified complete identity
+for a historical invocation before current policy admission. Signature, reviewed
+target and managed-argument checks still run first. The approval execution owner
+performs the identity transition in an invocation-then-request lock transaction.
+It requires the exact current claim, company and invocation relationship, an
+undispatched awaiting-approval invocation, and the expected reviewed/preview hash.
+Unrelated saved hashes are not accepted. Modern matching identities do not add
+this transaction. Current policies and rate charges still apply afterward.
+
+Four real-PostgreSQL regressions reproduced the defect: valid sensitive historical
+arguments, with and without a newly configured rate rule, through each of the two
+origins. Four controls keep invalid signatures and unrelated invocation hashes
+rejected without dispatch or identity changes. The provider receives the original
+verified arguments exactly once, rather than their redacted preview. A separate
+real-transaction case proves a replaced claim cannot change the saved identity.
+
+The first draft fixtures used a nonexistent request-level tool name and then
+non-sensitive arguments whose preview and complete hashes were equal. Those
+fixture failures are not credited as product regressions. The corrected four
+positive cases fail before the repair and all eight parameter cases pass after.
+The complete gateway, policy and startup selection passes 230 cases with no skips;
+server types pass. The complete assembled-server connection-management suite also
+passes all 78 cases, including delegated approval and rate-policy behavior. Fresh
+remote CI and reviews remain required after publication.
