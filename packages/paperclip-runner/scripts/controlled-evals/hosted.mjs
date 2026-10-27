@@ -23,7 +23,9 @@ export function prepareHostedManifest({ catalog, catalogSha256, prepared, policy
       || !Number.isSafeInteger(policy.maxCells) || policy.maxCells < 1 || policy.maxCells > 512
       || !Array.isArray(policy.allocations) || !policy.allocations.length) throw new Error('A bounded hosted policy with tracing is required');
   if (!/^[a-f0-9]{64}$/.test(policy.controllerLockSha256 ?? '')) throw new Error('Invalid hosted controller lock binding');
-  costRuntime.reservationBound('operating_allowance', policy.capacityBound, hostedPolicyConfiguration(policy));
+  if (policy.overhead?.accountingReadiness !== 'model_requests' || policy.capacityBound !== undefined) {
+    costRuntime.reservationBound('operating_allowance', policy.capacityBound, hostedPolicyConfiguration(policy));
+  }
   fields(policy.observability, ['projectId', 'capture', 'nativeLimits']);
   const runId = environment.GITHUB_RUN_ID, paths = hostedPaths(runId);
   if (prepared.schema !== 'paperclip.runner-eval.prepared-requests/v1' || prepared.githubRunId !== runId || prepared.githubRunAttempt !== 1
@@ -65,7 +67,7 @@ export function prepareHostedManifest({ catalog, catalogSha256, prepared, policy
     models: policy.models, overhead: policy.overhead, observability: { ...policy.observability },
     sourceRevision: prepared.sourceRevision, definitionsRevision: prepared.definitionsRevision, ...artifacts,
     outputDirectory: paths.evidence, hosted: { repository: environment.GITHUB_REPOSITORY, runId, runAttempt: 1, workflowRevision: environment.GITHUB_SHA, controllerLockSha256: policy.controllerLockSha256, policySha256: sha256(canonical(policy)) }, attempts };
-  manifest.observability.provisionalBound = { ...policy.capacityBound, configurationSha256: sha256(canonical(observabilityBoundConfiguration(manifest))) };
+  if (policy.capacityBound !== undefined) manifest.observability.provisionalBound = { ...policy.capacityBound, configurationSha256: sha256(canonical(observabilityBoundConfiguration(manifest))) };
   const validated = validateManifest(manifest, now);
   assertHostedAdmission(manifest, attempts[0], { ...environment, PAPERCLIP_RUNNER_EVAL_EXECUTION_ID: attempts[0].executionId });
   return validated;

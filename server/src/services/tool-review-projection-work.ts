@@ -15,9 +15,9 @@ export function registerToolReviewProjectionWork(
     matches: (entry, companyId?: string) => companyId === undefined || entry.companyId === companyId,
     load: async (companyId?: string) => (await service.companies(companyId))
       .map(row => ({ ...row, id: row.companyId, dueAt: Date.now() })),
-    check: async entry => {
-      const result = await service.sweep(entry.companyId);
-      return result.retry ? { ...entry, dueAt: Date.now() + 30_000 } : null;
+    check: async (entry, signal) => {
+      const result = await service.sweep(entry.companyId, { maxRows: 500, signal, shouldContinue: canRun });
+      return result.retry ? { ...entry, dueAt: Date.now() + (result.truncated ? 1000 : 30_000) } : null;
     },
   }, canRun);
 }

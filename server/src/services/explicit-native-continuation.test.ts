@@ -9,7 +9,7 @@ import * as nativeExecutor from "./native-runtime/native-session-executor.js";
 import { appendHeartbeatRunEvent } from "./heartbeat-run-events.js";
 import { recordNativeLocalProcessStop, hasNativeLocalProcessStop, PROCESS_START_REQUESTED } from "./native-local-process-stop.js";
 import { remoteTerminationReceipt } from "./remote-execution-termination.js";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +18,7 @@ import { beforeAll, afterAll, describe, it, expect, vi } from "vitest";
 import {
   applyPendingMigrations, approvals, issueApprovals, issueThreadInteractions, chatConversations, chatEndpoints, toolApplications, toolConnections,
   agentWakeupRequests, agents, companies, createDb, heartbeatRunEvents, heartbeatRuns, issueComments, issueRecoveryActions,
-  issues, nativeRunFinalizations, nativeRunResults, completionContracts, environmentLeases, environments, issueRelations, issueTreeHolds, issueTreeHoldMembers,
+  issues, nativeRunFinalizations, nativeRunResults, completionContracts, environmentLeases, environments, issueRelations, issueTreeHolds, issueTreeHoldMembers, type Db,
 } from "@paperclipai/db";
 import { startEmbeddedPostgresTestDatabase, getEmbeddedPostgresTestSupport } from "../__tests__/helpers/embedded-postgres.js";
 import { resolveExternalTestDatabaseUrl } from "../__tests__/helpers/external-test-database.js";
@@ -65,6 +65,67 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
       actorType: "user", actorId: "board", reason: "issue_commented" };
   }
   type Fixture = Awaited<ReturnType<typeof seed>>;
+  async function readAdmission(f: Fixture, full: boolean) {
+    const reads: Array<Array<Record<string, unknown>>> = [];
+    const recorded = new Proxy(db, { get(target, key) {
+      if (key !== "select") return Reflect.get(target, key);
+      return (...fields: Parameters<Db["select"]>) => {
+        const builder = target.select(...fields), from = builder.from.bind(builder);
+        builder.from = ((...args: Parameters<typeof from>) => {
+          const admissionRead = args[0] === heartbeatRuns && Object.hasOwn(fields[0] ?? {}, "runnerInstanceId");
+          const query = admissionRead && full ? target.select().from(heartbeatRuns) : from(...args);
+          const execute = query.execute.bind(query);
+          if (args[0] === heartbeatRuns) query.execute = async (...executeArgs: Parameters<typeof execute>) => {
+            const rows = await execute(...executeArgs), statement = query.toSQL().sql;
+            if (statement.includes('"id"::text') || statement.endsWith("for update")) reads.push(rows);
+            return rows;
+          };
+          return query;
+        }) as typeof builder.from;
+        return builder;
+      };
+    }});
+    const blocked: string[] = [];
+    const result = await admitExplicitNativeContinuation({ ...f, db: recorded, dryRun: true,
+      onBlocked: reason => blocked.push(reason) });
+    return { result, blocked, reads };
+  }
+  it("keeps admission and the complete locked session profile while omitting prompt data", async () => {
+    const f = await seed();
+    const payload = randomBytes(128 * 1024).toString("base64");
+    const profile = { adapterDispatch: { adapterType: "paperclip_runner", adapterConfig: { instructions: payload } },
+      nativeExecutionInput: { task: { description: payload } }, sessionCheckpoint: { providerSessionId: "retained" },
+      nativeToolContractFingerprint: "retained-fingerprint" };
+    await db.update(heartbeatRuns).set({ contextSnapshot: { issueId: f.issueId, prompt: payload },
+      runnerProfileJson: profile }).where(eq(heartbeatRuns.id, f.sourceRunId));
+    const baseline = await readAdmission(f, true), projected = await readAdmission(f, false);
+    expect(projected.result).toEqual(baseline.result);
+    expect(projected.result).toMatchObject({ previousRunId: f.sourceRunId, commentId: f.commentId });
+    expect(projected.blocked).toEqual(baseline.blocked);
+    expect(projected.reads).toHaveLength(2);
+    expect(projected.reads.map(rows => rows[0].contextSnapshot)).toEqual([{ issueId: f.issueId }, { issueId: f.issueId }]);
+    expect(projected.reads[0][0].runnerProfileJson).toEqual({ adapterDispatch: { adapterType: "paperclip_runner" } });
+    expect(projected.reads[1][0].runnerProfileJson).toEqual(profile);
+    expect(Buffer.byteLength(JSON.stringify(projected.reads))).toBeLessThan(Buffer.byteLength(JSON.stringify(baseline.reads)) / 2);
+    const [stored] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, f.sourceRunId));
+    expect(stored.contextSnapshot).toEqual({ issueId: f.issueId, prompt: payload });
+    expect(stored.runnerProfileJson).toEqual(profile);
+  });
+  it.each([null, [], "scalar", 42, {}, { issueId: 42, wakeCommentId: false, wakeCommentIds: [null, 42],
+    source: null, adapterDispatch: { adapterType: 42 }, nativeWorkspaceSync: [] }].map(value => ({ value })))(
+    "preserves a controller hold with missing or malformed JSON ($value)", async ({ value }) => {
+      const f = await seed();
+      await db.update(heartbeatRuns).set({ contextSnapshot: value as Record<string, unknown> | null,
+        runnerProfileJson: value as Record<string, unknown> | null }).where(eq(heartbeatRuns.id, f.sourceRunId));
+      await db.update(nativeRunFinalizations).set({ leaseOwner: "still-owned" }).where(eq(nativeRunFinalizations.runId, f.sourceRunId));
+      const baseline = await readAdmission(f, true), projected = await readAdmission(f, false);
+      expect(projected.result).toEqual(baseline.result);
+      expect(projected.blocked).toEqual(baseline.blocked);
+      expect(projected.blocked).toEqual(["controller_settling"]);
+      expect(projected.reads).toHaveLength(2);
+      expect(projected.reads[1][0].runnerProfileJson).toEqual(baseline.reads[1][0].runnerProfileJson);
+    },
+  );
   it.each(["new", "saved"])("delivers a reassignment's saved user question once after the native run stopped (%s)", async origin => {
     const f = await seed();
     await db.update(issues).set({ status: "in_review" }).where(eq(issues.id, f.issueId));

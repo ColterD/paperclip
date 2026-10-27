@@ -98,7 +98,7 @@ the embedded runtime is unavailable; CI must run that supported environment.
 Workspace typecheck and build pass. The final literal-predicate adjustment also
 passes all 49 decision tests before the additional archive-race regression.
 
-Migration 0382 applies and replays without error. A rolled-back synthetic
+The original continuation index applied and replayed without error. After parent integration it is generated migration `0388_ambitious_micromax.sql`; the fresh apply and replay also pass. A rolled-back synthetic
 40,000-row history with one pending continuation uses the partial index under
 `force_generic_plan`, reads two shared buffers, and executes in 0.015 ms on the
 local PostgreSQL server. This is query evidence, not a production latency claim.
@@ -124,3 +124,28 @@ The existing tool-review and archive-delivery consumers also pass 124 real-DB
 tests after AbortSignal propagation. Together with the decision/startup/signal
 selection, 217 selected tests pass; the same nine older embedded-only cases
 remain locally skipped. Workspace typecheck passes after the outcome type fix.
+
+
+## Explicit archive-failure delivery
+
+The three archive-proposal failure paths now explicitly set
+`continuationPending: true` for `wake_origin_agent`, rather than assuming the
+pre-read running row already carries that metadata. The existing running-state
+fence remains, so stale settlement cannot re-arm an acknowledged result.
+Invalid signatures, manifest mismatches and archive execution failures each
+failed a real-PostgreSQL recovery regression before repair. Each now saves the
+failed result, wakes once, acknowledges delivery and remains quiet on replay.
+
+Normal parent integration preserves the projection interaction-link index and
+archive pending-order index. The unmerged continuation index was regenerated
+as 0388 from the parent's generated metadata; every parent journal entry is
+unchanged, five snapshots remain, the SQL uses the existing top-level concurrent
+executor, and snapshot/schema drift passes. No generated snapshot was hand-edited.
+
+The final affected selection passes 111 cases: 53 decisions, 15 retention/archive,
+42 startup and one scoped-deadline case, with all four suites exercised. The
+first combined command used the wrong retention DB variable and skipped those
+15 cases; the corrected external-PostgreSQL retention run passes all 15. Server
+typecheck and build pass. The historical nine embedded-only work-signal skips
+above are not reclassified as executed by this selection. Fresh CI and reviews
+remain required.

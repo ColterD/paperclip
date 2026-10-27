@@ -12,13 +12,14 @@ Do not mark an item done from a timer removal or a green check alone.
 
 | ID | Original checklist duty | Required slices / disposition | PR / evidence |
 | --- | --- | --- | --- |
-| 01 | Custom-image setup expiry | Session writes, existing expiry, startup/retry/drain | [#17443](https://github.com/paperclipai/paperclip/pull/17443), all checks passed, Greptile 5/5 at `36844a458b` |
+| 01 | Custom-image setup expiry | Session writes, existing expiry, startup/retry/drain | [#17443](https://github.com/paperclipai/paperclip/pull/17443), merged after CI and passing reviews |
 | 02 | Remaining chat maintenance | Provider runtime discovery; voice reconciliation; milestones; wake notices; interaction continuations; terminal confirmations; GitHub recovery; Teams maintenance, separately by owner | Pending |
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
 | 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Retention pending; notification delivery: [#17475](https://github.com/paperclipai/paperclip/pull/17475), all checks passed (Paperclip Review skipped), Greptile 5/5 at `692e3ee02c` |
 | 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations: [#17478](https://github.com/paperclipai/paperclip/pull/17478), review repairs under verification; expiry branch in progress; effects and target invalidation pending |
 | 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | Pending |
-| 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Secret proposals: [#17446](https://github.com/paperclipai/paperclip/pull/17446), checks passed at `d41590ac0e`; gateway credentials: [#17450](https://github.com/paperclipai/paperclip/pull/17450), all checks passed, Greptile 5/5 at `c5c53fc43f`; pending tool-review expiry: [#17453](https://github.com/paperclipai/paperclip/pull/17453), all checks passed, Greptile 5/5 at `ce6a260a83`; approved recovery: [#17454](https://github.com/paperclipai/paperclip/pull/17454), all checks passed, Greptile 5/5 at `7a1cf03e62`; interrupted claims: [#17458](https://github.com/paperclipai/paperclip/pull/17458), all checks passed, Greptile 5/5 at `85003a7ac4`; projection: [#17468](https://github.com/paperclipai/paperclip/pull/17468), all checks passed, Greptile 5/5 at `0956883a84` |
+| 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Secret proposals: [#17446](https://github.com/paperclipai/paperclip/pull/17446), merged; gateway credentials: [#17450](https://github.com/paperclipai/paperclip/pull/17450), merged; pending tool-review expiry: [#17453](https://github.com/paperclipai/paperclip/pull/17453), merged; approved recovery: [#17454](https://github.com/paperclipai/paperclip/pull/17454), merged after current-head CI and both 5/5 reviews; interrupted claims: [#17458](https://github.com/paperclipai/paperclip/pull/17458), merged after current-head CI and both 5/5 reviews; projection: [#17468](https://github.com/paperclipai/paperclip/pull/17468), interaction-link index verified and awaiting fresh CI/review |
+
 | 08 | GitHub connection events and continuity | Event discovery/replay and credential continuity separately | Pending |
 | 09 | Merged-PR confirmations | Candidate writes, webhook activation where supported, outstanding-candidate fallback | Pending |
 | 10 | External-object refresh | Configuration changes, refresh deadlines, source events | Pending |
@@ -243,7 +244,7 @@ producers and request settlements use the existing review notification boundary.
 A partial index supports the first deadline. The aggregate tick now excludes
 interrupted claims; projection repair remains its own pending slice.
 
-Thirteen new worker cases and the existing service/startup selection pass
+Sixteen new worker cases and the existing service/startup selection pass
 (136 total on the combined head). Workspace typecheck/build and migration checks
 pass. Two fake-clock fixture ordering failures were corrected to wait for real
 settlement while advancing retry time. The combined tool-access run had one
@@ -304,37 +305,50 @@ initial missing-state bug and referenced-key fixture failure are recorded in the
 behavior document. Build and additional consumer regressions are running; no
 seventh PR is claimed ready yet.
 
-Fresh parent evidence: #17454 at `7a1cf03e62` and #17458 at `85003a7ac4` have
-passing CI test/build matrices and Greptile 5/5 with no unresolved findings.
-Their additional Paperclip Review checks are still queued/running. The first
-six PRs remain open; the full inventory is still in scope. Master inspected
-at `410e5c6eed` retains these recurring duties and has no migration-number
-collision (its latest journal entry is 0377).
+Historical parent evidence at the initial migration: #17454 at `7a1cf03e62`
+and #17458 at `85003a7ac4` passed the recorded CI matrices and Greptile review.
+Those snapshots preceded their current-head review and landing. The first six
+stack PRs have now merged. The full remaining inventory is still in scope.
 
-Slice 07 final local verification: 815 selected tests pass, workspace typecheck
-and build pass. One initial interaction cleanup-hook timeout is recorded in
+Initial slice 07 local verification: 815 selected tests passed, with workspace
+typecheck and build passing. One initial interaction cleanup-hook timeout is recorded in
 the behavior document; the complete isolated suite then passed. Both parent
 PRs #17454 and #17458 now have every check passed and are mergeable, including
 the additional Paperclip Review checks. Full CI/review for slice 07 is next.
 
 
+Slice 07 current integration: master `f6bc653f7f` contains the first six landed
+slices and the independent identity/resume/sidebar performance work. This slice
+adds generated concurrent interaction-link index migration `0386_steady_epoch`
+and retains five schema snapshots. Projection worker passes stop at 500 rows,
+honor abort/drain between rows, and resume past failed or unprojectable pages;
+empty reconstruction clears obsolete cursors. Six real regressions failed before
+the fixes. All 320 integrated gateway/projection/startup/deadline/identity/HTTP
+cases, server types and build pass; 35 independent master files are preserved
+exactly. Current-head CI and Greptile/Ponytail review remain required. Earlier
+case counts above describe the broader selections at their original revisions.
+
+
 ## Slice 08: decision-archive notification delivery
 
-Projection repair is #17468, head `0956883a84`, with Greptile 5/5 and no open
-findings. Latest checks are running with no failure. Slice 08 is based on that
-branch and separates archive notification delivery from retention scanning.
+Projection repair is #17468. Its bounded master integration passes local
+acceptance and awaits fresh checks and review. Slice 08 builds on that branch
+and separates archive notification delivery from retention scanning.
 The existing auto-archive transaction is the sole outbox producer. A committed
 enqueue wakes delivery; pending rows retain retries and delivering rows retain
 their saved five-minute claim deadline. Delivered history is quiet.
 
 The implementation preserves the delivery API and payload. It fences stale
 completion by claim timestamp and orders unattempted/oldest-attempted pending
-rows so failed batches do not starve later work. No table or migration is added.
-See [archive delivery](../idle-decision-archive-delivery.md).
+rows so failed batches do not starve later work. No table is added. Generated
+migration `0387_boring_professor_monster.sql` adds the concurrent partial index
+for pending delivery order. See [archive delivery](../idle-decision-archive-delivery.md).
 
-All 54 selected tests pass, including 12 new real-PostgreSQL lifecycle cases.
-Workspace typecheck/build pass. Two added-fixture failures and their corrections
-are recorded in the behavior document. Full CI/review remains required.
+All 58 selected tests pass: 15 real-PostgreSQL retention/delivery cases, 42 startup
+cases and the shared deadline worker case. Migration checks, generated snapshot
+drift, server typecheck and build pass. The initial fixture failures, stale-claim
+counter regression and corrected disabled-mode expectation are recorded in the
+behavior document. Full current-head CI and both reviews remain required.
 Retention eligibility/scanning, decision expiry, effect recovery, and decision
 continuation delivery remain independent unfinished reasons in the full ledger.
 
@@ -444,6 +458,16 @@ review repairs and adapt its own paged expiry worker to cancellation before PR
 publication. No tenth PR or readiness is claimed.
 
 
+Slice 09 review follow-up: every failed archive-proposal settlement explicitly
+creates its origin-agent continuation obligation. Three recovered-row regressions
+failed before repair and pass with exactly one wake and persisted acknowledgement.
+The current parent-integrated selection passes 111 decision/archive/startup/deadline
+cases, server types/build, fresh migration apply/replay and generated snapshot
+drift. Own unmerged index is regenerated as `0388_ambitious_micromax.sql`; parent
+386/387 migrations and journal entries are preserved. The initial skipped retention
+command and corrected 15-case run are recorded in the behavior document.
+
+
 ## Slice 10: decision TTL expiry
 
 The TTL implementation now includes parent continuation repairs from `5f96892a58`.
@@ -459,3 +483,4 @@ Migration replay and a 40,000-row history query probe pass (two buffers).
 Final workspace typecheck/build and fresh PR CI/review remain required.
 The parent continuation PR is awaiting fresh review/CI on `5f96892a58`, with both
 initial findings repaired and resolved. The full inventory remains in scope.
+

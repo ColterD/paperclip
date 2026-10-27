@@ -207,6 +207,34 @@ describePg("decisionService", () => {
     expect(states.find((row) => row.sourceId === unreviewedIssueId)?.archivedAt).toBeNull();
   });
 
+  it.each(["invalid_signature", "manifest_mismatch", "archive_failure"] as const)("delivers a recovered archive failure without inherited pending metadata: %s", async failure => {
+    const activityAt = new Date("2026-04-01T00:00:00.000Z");
+    const manifest: AttentionArchiveManifestEntry[] = [{ companyId, sourceKind: "review", sourceId: targetIssueId,
+      expectedVersion: 1, activityAt: activityAt.toISOString(), reason: "Archive" }];
+    const row = await service().create({ companyId, actor: agentActor(), agentId, runId, title: "Archive?", body: "Exact set",
+      continuationPolicy: "wake_origin_agent", options: [{ id: "archive", label: "Archive", effects: [] }],
+      metadata: { kind: "attention_archive_proposal", manifestHash: failure === "manifest_mismatch" ? "incorrect" : hashAttentionArchiveManifest(manifest) },
+      additionalTargetSnapshots: { [`attention:review:${targetIssueId}`]: { status: "attention", assigneeAgentId: null,
+        assigneeUserId: null, updatedAt: activityAt.toISOString(), attentionArchive: manifest[0] } } });
+    await db.update(decisions).set({ status: "decided", executionStatus: "running", chosenOptionId: "archive",
+      decidedByUserId, decidedAt: new Date(), updatedAt: new Date(Date.now() - 120_000),
+      ...(failure === "invalid_signature" ? { signedSpec: "invalid" } : {}),
+      metadata: { ...row.metadata, continuationPending: false } }).where(eq(decisions.id, row.id));
+    const original = retentionModule.decisionRetentionService;
+    const factory = failure === "archive_failure" ? vi.spyOn(retentionModule, "decisionRetentionService").mockImplementation((source, options) => ({
+      ...original(source, options), archiveReviewedManifest: async () => { throw new Error("archive_failure"); },
+    })) : undefined;
+    try {
+      expect(await service().sweepExpired()).toMatchObject({ resumed: 1 });
+      const saved = await service().get(row.id);
+      expect(saved).toMatchObject({ executionStatus: "failed", metadata: { archiveProposalError: failure, continuationPending: false } });
+      expect(saved!.metadata.continuationDeliveredAt).toEqual(expect.any(String));
+      expect(wakes).toHaveLength(1);
+      await service().sweepExpired();
+      expect(wakes).toHaveLength(1);
+    } finally { factory?.mockRestore(); }
+  });
+
   it("serializes concurrent archive completion before reporting its outcome", async () => {
     await db.update(issues).set({ status: "in_review", assigneeUserId: decidedByUserId }).where(eq(issues.id, targetIssueId));
     const activityAt = new Date("2026-04-01T00:00:00.000Z");

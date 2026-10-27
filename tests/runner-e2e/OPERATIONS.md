@@ -223,7 +223,8 @@ stable key-sorted JSON hashing. The model configuration contains `provider`,
 `mode` (the manifest route), `price`, `maximumInputTokens`,
 `maximumOutputTokens`, and `reservation` (the nine-decimal value from
 `evalRequestReservation`). An operating configuration contains allowance
-`reference`, `runner`, `verifiedAt`, `expiresAt`, and a `component` object with
+`reference`, `runner`, `verifiedAt`, `expiresAt`, optional `accountingReadiness`
+(only when present), and a `component` object with
 its `component`, `maxUsd`, and `reference`. Changing any of those values
 invalidates the approval hash. Evidence metadata itself is excluded from this
 configuration hash.
@@ -897,3 +898,14 @@ an operations manifest. They use the same metered connection, prices, campaign
 journal, setup boundary, and durable attempt allowance as core compatibility.
 Collection and the independent saved-evidence oracle require no additional
 model call. The synthetic items need review as test data, not product incidents.
+
+
+### Qualify model spend while operating reconciliation is pending
+
+Set `accountingReadiness: "model_requests"` on the reviewed allowance to use
+complete model receipts as the scheduled readiness gate. This is an explicit
+operator policy. The report retains the full-accounting status, operating
+reservations and model-readiness status separately. It does not release any
+historical hold or certify a full-lifecycle vendor cost bound. Missing model
+receipts, conflicts, active requests, excess commitments, and the existing
+product, cleanup, feedback and trace checks still fail qualification.

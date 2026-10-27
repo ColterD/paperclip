@@ -81,13 +81,14 @@ export function decisionArchiveDeliveryService(
           eq(decisionArchiveNotificationOutbox.status, "delivering"),
           eq(decisionArchiveNotificationOutbox.lastAttemptAt, claimAt),
         )).returning({ id: decisionArchiveNotificationOutbox.id });
-        notifiedAgents += 1;
+        if (settled.length > 0) notifiedAgents += 1;
         delivered += settled.length;
       } catch {
+        const failedAt = new Date();
         await db.update(decisionArchiveNotificationOutbox).set({
           status: "pending",
-          lastAttemptAt: new Date(),
-          updatedAt: new Date(),
+          lastAttemptAt: failedAt,
+          updatedAt: failedAt,
         }).where(and(
           inArray(decisionArchiveNotificationOutbox.id, grouped.map((row) => row.id)),
           eq(decisionArchiveNotificationOutbox.status, "delivering"),

@@ -580,7 +580,7 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
         options: decision.options,
         targetSnapshots: decision.targetSnapshots as Record<string, Snapshot>,
       }), decision.signedSpec)) {
-        await writeDecisionChange(db, async tx => tx.update(decisions).set({ executionStatus: "failed", updatedAt: new Date(), metadata: { ...metadata, archiveProposalError: "invalid_signature" } })
+        await writeDecisionChange(db, async tx => tx.update(decisions).set({ executionStatus: "failed", updatedAt: new Date(), metadata: { ...metadata, archiveProposalError: "invalid_signature", ...(decision.continuationPolicy === "wake_origin_agent" ? { continuationPending: true } : {}) } })
           .where(and(eq(decisions.id, decision.id), eq(decisions.executionStatus, "running"))));
         return outcome(decision.id);
       }
@@ -591,7 +591,7 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
         );
         const manifestHash = manifest ? hashAttentionArchiveManifest(manifest) : null;
         if (!manifest || manifestHash !== metadata.manifestHash) {
-          await writeDecisionChange(db, async tx => tx.update(decisions).set({ executionStatus: "failed", updatedAt: new Date(), metadata: { ...metadata, archiveProposalError: "manifest_mismatch" } })
+          await writeDecisionChange(db, async tx => tx.update(decisions).set({ executionStatus: "failed", updatedAt: new Date(), metadata: { ...metadata, archiveProposalError: "manifest_mismatch", ...(decision.continuationPolicy === "wake_origin_agent" ? { continuationPending: true } : {}) } })
             .where(and(eq(decisions.id, decision.id), eq(decisions.executionStatus, "running"))));
           return outcome(decision.id);
         }
@@ -613,7 +613,7 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : "archive_proposal_failed";
-          await writeDecisionChange(db, async tx => tx.update(decisions).set({ executionStatus: "failed", updatedAt: new Date(), metadata: { ...metadata, archiveProposalError: message } })
+          await writeDecisionChange(db, async tx => tx.update(decisions).set({ executionStatus: "failed", updatedAt: new Date(), metadata: { ...metadata, archiveProposalError: message, ...(decision.continuationPolicy === "wake_origin_agent" ? { continuationPending: true } : {}) } })
             .where(and(eq(decisions.id, decision.id), eq(decisions.executionStatus, "running"))));
           return outcome(decision.id);
         }
