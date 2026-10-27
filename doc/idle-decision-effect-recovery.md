@@ -228,3 +228,12 @@ retry remain. Continuation notification coalescing is owned separately by the
 parent. Extra upstream embedded-only tests attempted during parent integration
 could not initialize locally; fresh current-head CI must cover that environment.
 Full CI and both automated reviews remain merge gates.
+
+
+After normal integration of master-target expiry parent `f7c61e9912`, the
+effect-recovery owner, worker, decision execution and notification implementations
+are unchanged. All 69 current recovery/startup/deadline cases and server types/
+build pass with the updated Runner vendor. The earlier full 141-case selection
+remains evidence at its stated revision. Parent migration history is an exact
+prefix and five generated snapshots remain. Fresh head CI and both automated
+reviews are required after this parent integration.

@@ -18,7 +18,7 @@ import { decisionRetentionService, hashAttentionArchiveManifest } from "./decisi
 import { decisionContinuationService, type DecisionContinuationWake } from "./decision-continuations.js";
 import { decisionEffectRecoveryService, decisionSweepBatchSize } from "./decision-effect-recovery.js";
 import { decisionExpiryService } from "./decision-expiry.js";
-import { notifyDecisionChange, writeDecisionChange } from "./decision-work-notifications.js";
+import { notifyDecisionCreated, writeDecisionChange } from "./decision-work-notifications.js";
 
 type Snapshot = { status: string; assigneeAgentId: string | null; assigneeUserId: string | null; updatedAt: string;
   descendantCount?: number; descendantIds?: string[]; childCount?: number; attentionArchive?: unknown };
@@ -240,7 +240,7 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
       ...(input.additionalTargetSnapshots ?? {}),
     };
     const id = randomUUID();
-    await notifyDecisionChange(dbOrTx);
+    await notifyDecisionCreated(dbOrTx);
     await notifyDecisionTargetWork(dbOrTx, `decision:${id}`);
     const [created] = await dbOrTx.insert(decisions).values({ id, companyId: input.companyId, bundleId: input.bundleId ?? null,
       originAgentId: input.agentId, originIssueId: provenance.issueId, originRunId: input.runId, ruleKey: input.ruleKey ?? null,
