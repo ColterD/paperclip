@@ -456,3 +456,13 @@ admitted failure finished; the assertion now verifies all errors after settled
 recovery. No hold or retry was weakened. This branch must receive the parent
 review repairs and adapt its own paged expiry worker to cancellation before PR
 publication. No tenth PR or readiness is claimed.
+
+
+Slice 09 review follow-up: every failed archive-proposal settlement explicitly
+creates its origin-agent continuation obligation. Three recovered-row regressions
+failed before repair and pass with exactly one wake and persisted acknowledgement.
+The current parent-integrated selection passes 111 decision/archive/startup/deadline
+cases, server types/build, fresh migration apply/replay and generated snapshot
+drift. Own unmerged index is regenerated as `0388_ambitious_micromax.sql`; parent
+386/387 migrations and journal entries are preserved. The initial skipped retention
+command and corrected 15-case run are recorded in the behavior document.
