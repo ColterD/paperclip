@@ -323,7 +323,7 @@ export async function openQualifiedAcpxRuntime(
   const selectedGrokEffort = resolveGrokEffort(options.profile.agent, options.grokEffort);
   const grokDisableWebSearch = resolveGrokDisableWebSearch(options.profile.agent, options.grokDisableWebSearch);
   const effortAdmission = selectedClaudeEffort ? createClaudeEffortAdmission(selectedClaudeEffort)
-    : selectedGrokEffort ? createGrokEffortAdmission(selectedGrokEffort) : undefined;
+    : selectedGrokEffort ? createGrokEffortAdmission(selectedGrokEffort, options.profile.reportedModelId) : undefined;
   const cursorInstructions = options.profile.agent === "cursor"
     ? createCursorInstructionAdmission(options.systemInstructions)
     : null;
@@ -565,9 +565,15 @@ export async function openQualifiedAcpxRuntime(
         handle = ensuredHandle;
         options.signal?.throwIfAborted();
         if (!effortAdmission.isReady()) {
-          if (!runtime.setConfigOption) throw new Error("Effort admission requires native configuration");
           const spawnsBeforeControl = commandLaunches.count;
-          await runtime.setConfigOption({ handle: ensuredHandle, key: selectedGrokEffort ? "reasoning_effort" : "effort", value: (selectedGrokEffort ?? selectedClaudeEffort)! });
+          if (selectedGrokEffort) {
+            if (!runtime.requestExtension) throw new Error("Grok admission requires native session inspection");
+            await runtime.requestExtension({ handle: ensuredHandle, method: "_x.ai/session/info",
+              params: { sessionId: requireIdentity(ensuredHandle).backendSessionId }, sessionMode: "persistent" });
+          } else {
+            if (!runtime.setConfigOption) throw new Error("Effort admission requires native configuration");
+            await runtime.setConfigOption({ handle: ensuredHandle, key: "effort", value: selectedClaudeEffort! });
+          }
           effortAdmission.assertReady();
           await children.verifyLifetimeOwnership();
           options.signal?.throwIfAborted();

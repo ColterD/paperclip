@@ -385,6 +385,7 @@ export async function setupLiveFixtures(input: {
       if (managedHiring || savedCopilot || budgetedGateway) {
         const account = value<ManagedAccountFixture>(resolved, "ai-connection");
         const config = agent.adapterConfig as Record<string, unknown>;
+        if (budgetedGateway && execution.environment.id === "daytona") config.helloProbeTimeoutSec = 300;
         delete config.env;
         agent.runtimeConfig = {
           ...(agent.runtimeConfig as Record<string, unknown>),

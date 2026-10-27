@@ -17,9 +17,15 @@ Grok Build's qualified harness does not require the `enableNativeRunner` flag.
 
 Explicit thinking effort uses `reasoningEffort` (`minimal`, `low`, `medium`,
 `high`, or `xhigh`). The immutable v10 execution input, provider descriptor,
-and recovery identity bind this value as `grokEffort`. Before a prompt, the
-Runner applies ACP `reasoning_effort` and requires Grok to acknowledge the exact
-value. Missing configuration, a rejected value, or effort drift stops admission.
+and recovery identity bind this value as `grokEffort`. The Grok provider boundary
+adds native `_meta.modelId` and `_meta.reasoningEffort` to session create, load,
+and resume requests before transport writes and observation. Grok 1.0.13 reports
+the selected effort in `_meta["x.ai/sessionConfig"].options`; it does not support
+the standard `session/set_config_option` effort API. The Runner checks that native
+acknowledgement and the effective model before a prompt. A lazy restored handle
+must connect through read-only native session inspection first. Reapplying the
+bound metadata on restore prevents Grok from resetting effort to its default.
+Missing configuration, a rejected value, or effort drift stops admission.
 Omitting effort retains Grok's provider default. This setting remains outside
 the model-visible task prompt. Historical execution inputs retain their schemas.
 
