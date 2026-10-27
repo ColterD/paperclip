@@ -418,11 +418,15 @@ describeEmbeddedPostgres("tool gateway service", () => {
       });
 
       it.each([
-        ...["agent", "test-tab"].flatMap(origin => ["valid", "new-rate", "invalid-signature", "foreign-hash"]
+        ...["agent", "test-tab"].flatMap(origin => ["valid", "new-rate", "invalid-signature", "foreign-hash", "foreground-rate", "foreground-invalid-signature", "foreground-foreign-hash", "foreground-modern-review-hash"]
           .map(state => ({ origin, state }))),
       ])("recovers historical preview-hash approval ($origin, $state)", async ({ origin, state }) => {
         const remoteCall = providerFixture(); remoteCall.release();
         const parameters = { value: "reviewed", apiKey: "synthetic-historical-approval-key" };
+        const foreground = state.startsWith("foreground-");
+        if (foreground) await db.insert(toolPolicies).values({ companyId: fixture.company.id,
+          name: "Already admitted historical action", policyType: "rate_limit", priority: 1,
+          selectors: {}, config: { limit: 1, windowSeconds: 3600, keyBy: ["company", "tool"] } });
         const pending = origin === "agent" ? await agentRequest(remoteCall.provider, parameters)
           : (await testRequest(remoteCall.provider, false, parameters)).pending;
         const [originalInvocation] = await db.select().from(toolInvocations).where(eq(toolInvocations.id, pending.invocationId));
@@ -432,16 +436,25 @@ describeEmbeddedPostgres("tool gateway service", () => {
         const legacyHash = summarizeToolValue(payload.arguments).sha256!;
         const completeHash = toolRequestIdentityHash(payload.arguments, testToolActionSigningSecret);
         expect(legacyHash).not.toBe(completeHash);
-        const storedHash = state === "foreign-hash" ? "e".repeat(64) : legacyHash;
+        const storedHash = state.endsWith("foreign-hash") ? "e".repeat(64) : legacyHash;
         await db.update(toolInvocations).set({ argumentsHash: storedHash }).where(eq(toolInvocations.id, pending.invocationId));
-        await db.update(toolActionRequests).set({ canonicalArgumentsHash: legacyHash,
-          ...(state === "invalid-signature" ? { signedArguments: "unreadable-old-signature" } : {}),
+        await db.update(toolActionRequests).set({ canonicalArgumentsHash: state === "foreground-modern-review-hash" ? completeHash : legacyHash,
+          ...(["invalid-signature", "foreground-invalid-signature"].includes(state) ? { signedArguments: "unreadable-old-signature" } : {}),
         }).where(eq(toolActionRequests.id, pending.id));
         if (state === "new-rate") await db.insert(toolPolicies).values({ companyId: fixture.company.id,
           name: "New admission for historical approval", policyType: "rate_limit", priority: 1,
           selectors: {}, config: { limit: 1, windowSeconds: 3600, keyBy: ["company", "tool"] } });
-        await approve(pending); await startRecovery(); await settle();
-        if (state === "valid" || state === "new-rate") {
+        const counters = foreground ? await db.select().from(toolRateLimitCounters) : [];
+        if (foreground) {
+          expect(counters).toEqual([expect.objectContaining({ remaining: 0 })]);
+          const approval = gateway.approveActionRequest({ companyId: fixture.company.id,
+            actionRequestId: pending.id, actor: { userId: "board" } });
+          if (state === "foreground-invalid-signature") await expect(approval).rejects.toMatchObject({ reasonCode: "action_request_invalidated" });
+          else if (state === "foreground-foreign-hash" && origin === "agent") await expect(approval).rejects.toMatchObject({ reasonCode: "rate_limited" });
+          else await approval;
+        } else await approve(pending);
+        await startRecovery(); await settle();
+        if (state === "valid" || state === "new-rate" || state === "foreground-rate" || state === "foreground-modern-review-hash") {
           await executed(pending);
           expect((await db.select().from(toolInvocations))[0].argumentsHash).toBe(completeHash);
           expect(remoteCall.provider).toHaveBeenCalledOnce();
@@ -450,10 +463,12 @@ describeEmbeddedPostgres("tool gateway service", () => {
             .toEqual([expect.objectContaining({ limit: 1, remaining: 0 })]);
         } else {
           expect((await db.select().from(toolActionRequests))[0].status)
-            .toBe(state === "invalid-signature" ? "cancelled" : "failed");
+            .toBe(["invalid-signature", "foreground-invalid-signature"].includes(state) ? "cancelled"
+              : state === "foreground-foreign-hash" && origin === "agent" ? "pending" : "failed");
           expect((await db.select().from(toolInvocations))[0].argumentsHash).toBe(storedHash);
           expect(remoteCall.provider).not.toHaveBeenCalled();
         }
+        if (foreground) expect(await db.select().from(toolRateLimitCounters)).toEqual(counters);
         await quiet();
       });
 

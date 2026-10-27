@@ -333,3 +333,49 @@ case because its reused HTTP database still held the previous run's bot identity
 The existing ownership guard correctly rejected the duplicate connection. A fresh
 dedicated fixture resolved that environment collision; no product behavior or
 assertion changed for the rerun. That failed run remains part of the evidence.
+
+
+## Gateway admission uses its transaction connection
+
+Review of the master-targeted branch exposed a delegated gateway deadlock: the
+admission transaction held the sole pool connection while issuer/token authority
+reads used the root client. Foreground approval and approved recovery each failed
+the real one-connection regression; a revoked-issuer control already passed.
+The admission callback now receives its transaction and passes it through the
+existing issuer authority checks. Both connection authorization checks and the
+token read use that connection. Ordinary checks retain their root client, and
+current authority, claim, company and rate enforcement remain in place.
+The three constrained-pool cases pass, as do all 81 HTTP integration cases and
+190 gateway, policy, startup and deadline consumer cases. The initial consumer
+command selected an incorrect policy filename and omitted the gateway database
+override; it was interrupted and is not counted as passing evidence.
+
+## Pending historical approvals retain their original admission
+
+A second review finding concerned the normal foreground approval gate, before
+execution has claimed and rebound historical arguments. A real PostgreSQL
+regression with signed sensitive arguments and an already-consumed limit of one
+failed with `rate_limited`; the Test-tab and invalid-signature controls passed.
+The gateway now supplies the preview digest only after verifying the signed
+payload and matching either supported form of the review's canonical digest. Policy may match that digest
+only in a read-only preflight, with every other invocation-context field and
+stored rate-rule receipt still checked. The consuming admission continues to
+require the complete keyed identity, rebound under the exact execution claim.
+New or changed rate rules still apply. Historical recovery, invalid signatures,
+foreign invocation hashes, stale claims, and provider argument preservation stay
+covered. This adds no schema, recurring query or additional connection.
+
+The preceding CI head also failed E2E shard 3/8. Its failure is retained in the
+validation record; local gateway checks do not erase it. Fresh-head CI and both
+required automated reviews remain merge gates.
+
+The five full gateway/policy/startup/deadline suites passed 329 cases before the
+additional mixed historical identity control. The first combined attempt is
+retained: a Test-tab failure-result assertion incorrectly expected a thrown
+error, and reusing the earlier HTTP database left formal-approval foreign keys
+that prevented gateway acceptance setup. The assertion now checks the existing
+failed-result contract, with unchanged no-provider, hash and counter checks;
+the complete acceptance rerun used an independently migrated gateway database.
+Server production typechecking and build passed. The earlier E2E failure was a
+500 during the agent-chat project-plan fixture restoration, with a PostgreSQL
+deadlock in cancellation; it remains a fresh-head CI gate.

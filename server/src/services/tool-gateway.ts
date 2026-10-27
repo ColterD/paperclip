@@ -1251,6 +1251,7 @@ export function createToolGatewayService(
     input: ToolAccessDecisionInput,
     decisionOptions: NonNullable<Parameters<typeof basePolicyService.decide>[1]> & { requiredGatewayAction?: ToolMcpGatewayTokenAction } = {},
     policy: Pick<typeof basePolicyService, "decide" | "writeAudit"> = basePolicyService,
+    database: Db = db,
   ): Promise<ToolAccessDecision> {
     const issuerId = input.runContext?.originatingAgentId;
     if (!issuerId || !input.runContext?.gatewayId || input.actor.actorType !== "agent") return policy.decide(input, decisionOptions);
@@ -1264,7 +1265,7 @@ export function createToolGatewayService(
     const authorityKey = `gateway-issuer:${input.companyId}:${input.runContext.gatewayTokenId}:${issuerId}:${requiredAction ?? "inspect"}`;
     let authority = issuerCache?.get(authorityKey);
     if (!authority) {
-      authority = assertGatewayIssuerAuthority(input, requiredAction);
+      authority = assertGatewayIssuerAuthority(input, requiredAction, database);
       issuerCache?.set(authorityKey, authority);
     }
     await authority;
@@ -1289,13 +1290,13 @@ export function createToolGatewayService(
     ...basePolicyService,
     decide: decideGatewayPolicy,
     admitInvocation(input: ToolAccessDecisionInput, invocationId: string, claim?: ToolApprovalClaim) {
-      return basePolicyService.admitInvocation(input, invocationId, claim, (policy, admissionInput) =>
-        decideGatewayPolicy(admissionInput, { admittedInvocationId: invocationId, requiredGatewayAction: "tools/call" }, policy));
+      return basePolicyService.admitInvocation(input, invocationId, claim, (policy, admissionInput, transaction) =>
+        decideGatewayPolicy(admissionInput, { admittedInvocationId: invocationId, requiredGatewayAction: "tools/call" }, policy, transaction));
     },
   };
 
-  async function assertGatewayIssuerAuthority(input: ToolAccessDecisionInput, requiredAction?: ToolMcpGatewayTokenAction) {
-    const [row] = await db.select({ token: toolMcpGatewayTokens, gateway: toolMcpGateways }).from(toolMcpGatewayTokens)
+  async function assertGatewayIssuerAuthority(input: ToolAccessDecisionInput, requiredAction?: ToolMcpGatewayTokenAction, database: Db = db) {
+    const [row] = await database.select({ token: toolMcpGatewayTokens, gateway: toolMcpGateways }).from(toolMcpGatewayTokens)
       .innerJoin(toolMcpGateways, eq(toolMcpGateways.id, toolMcpGatewayTokens.gatewayId))
       .where(and(eq(toolMcpGatewayTokens.id, input.runContext!.gatewayTokenId!), eq(toolMcpGatewayTokens.companyId, input.companyId)));
     const issuerId = input.runContext!.originatingAgentId!;
@@ -1310,8 +1311,8 @@ export function createToolGatewayService(
     const resource = { type: "connection_management" as const, companyId: input.companyId, gatewayId: row.gateway.id,
       profileId: row.gateway.profileId, purpose: "tool" as const, operation: "gateway_token.use", targetAgentId: row.gateway.agentId,
       projectId: row.gateway.projectId, issueId: row.gateway.issueId };
-    await connectionManagementService(db).authorize(actor, "connections:gateway", resource, { mutation: false });
-    await connectionManagementService(db).authorize(actor, "connections:test", resource, { mutation: false });
+    await connectionManagementService(database).authorize(actor, "connections:gateway", resource, { mutation: false });
+    await connectionManagementService(database).authorize(actor, "connections:test", resource, { mutation: false });
   }
   async function recordToolInvocation(input: ToolAccessDecisionInput, decision: ToolAccessDecision) {
     try {
@@ -10266,6 +10267,7 @@ export function createToolGatewayService(
             "Tool definition or connection changed; request a new review",
             "approved_tool_target_changed",
           );
+        const previewHash = summarizeToolValue(signedPayload.arguments).sha256;
         const access = await policyService.decide(
           policyInputForTool({
             session,
@@ -10273,7 +10275,10 @@ export function createToolGatewayService(
             parameters: signedPayload.arguments,
             consumeRateLimit: false,
           }),
-          { admittedInvocationId: invocation.id, requiredGatewayAction: "tools/call" },
+          { admittedInvocationId: invocation.id, requiredGatewayAction: "tools/call",
+            admittedPreviewHash: [previewHash, toolRequestIdentityHash(signedPayload.arguments, options.toolActionSigningSecret)]
+              .includes(actionRequest.canonicalArgumentsHash) ? previewHash : undefined,
+          },
         );
         if (!access.allowed && access.decision !== "require_approval")
           throw new ToolGatewayHttpError(
