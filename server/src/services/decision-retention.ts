@@ -183,6 +183,16 @@ export function decisionRetentionService(
     )).then((rows) => rows[0] ?? null);
   }
 
+  async function materializeApprovalState(database: Db, input: { companyId: string; sourceKind: AttentionSourceKind; sourceId: string }) {
+    if (input.sourceKind !== "approval") return;
+    const [source] = await database.select({ updatedAt: approvals.updatedAt }).from(approvals)
+      .where(and(eq(approvals.companyId, input.companyId), eq(approvals.id, input.sourceId))).for("update");
+    if (!source) throw notFound("Attention source not found");
+    await decisionRetentionService(database).syncItems(input.companyId, [{
+      sourceKind: "approval", subject: { id: input.sourceId }, activityAt: source.updatedAt.toISOString(),
+    }]);
+  }
+
   async function setKeep(input: {
     companyId: string;
     sourceKind: AttentionSourceKind;
@@ -194,15 +204,18 @@ export function decisionRetentionService(
     if (!(await canReadDecisionSource(db, input.authActor, input.companyId, input.sourceKind, input.sourceId))) {
       throw notFound("Attention source not found");
     }
-    const updated = await writeRetention(input.sourceKind, tx => tx.update(decisionRetention).set({
-      keep: input.keep,
-      version: sql`${decisionRetention.version} + 1`,
-      updatedAt: new Date(),
-    }).where(and(
-      eq(decisionRetention.companyId, input.companyId),
-      eq(decisionRetention.sourceKind, input.sourceKind),
-      eq(decisionRetention.sourceId, input.sourceId),
-    )).returning().then((rows) => rows[0] ?? null));
+    const updated = await writeRetention(input.sourceKind, async tx => {
+      await materializeApprovalState(tx, input);
+      return tx.update(decisionRetention).set({
+        keep: input.keep,
+        version: sql`${decisionRetention.version} + 1`,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(decisionRetention.companyId, input.companyId),
+        eq(decisionRetention.sourceKind, input.sourceKind),
+        eq(decisionRetention.sourceId, input.sourceId),
+      )).returning().then((rows) => rows[0] ?? null);
+    });
     if (!updated) throw notFound("Attention source not found");
     await logActivity(db, {
       companyId: input.companyId,
@@ -232,28 +245,31 @@ export function decisionRetentionService(
       throw notFound("Attention source not found");
     }
     const now = new Date();
-    const updated = await writeRetention(input.sourceKind, tx => tx.update(decisionRetention).set(input.archived ? {
-      archivedAt: now,
-      archivedReason: "manual",
-      ...archiveActorColumns(input.actor),
-      archiveVersion: sql`${decisionRetention.archiveVersion} + 1`,
-      version: sql`${decisionRetention.version} + 1`,
-      updatedAt: now,
-    } : {
-      archivedAt: null,
-      archivedReason: null,
-      archivedByType: null,
-      archivedByAgentId: null,
-      archivedByUserId: null,
-      archivedByRunId: null,
-      version: sql`${decisionRetention.version} + 1`,
-      updatedAt: now,
-    }).where(and(
-      eq(decisionRetention.companyId, input.companyId),
-      eq(decisionRetention.sourceKind, input.sourceKind),
-      eq(decisionRetention.sourceId, input.sourceId),
-      input.archived ? isNull(decisionRetention.archivedAt) : isNotNull(decisionRetention.archivedAt),
-    )).returning().then((rows) => rows[0] ?? null));
+    const updated = await writeRetention(input.sourceKind, async tx => {
+      await materializeApprovalState(tx, input);
+      return tx.update(decisionRetention).set(input.archived ? {
+        archivedAt: now,
+        archivedReason: "manual",
+        ...archiveActorColumns(input.actor),
+        archiveVersion: sql`${decisionRetention.archiveVersion} + 1`,
+        version: sql`${decisionRetention.version} + 1`,
+        updatedAt: now,
+      } : {
+        archivedAt: null,
+        archivedReason: null,
+        archivedByType: null,
+        archivedByAgentId: null,
+        archivedByUserId: null,
+        archivedByRunId: null,
+        version: sql`${decisionRetention.version} + 1`,
+        updatedAt: now,
+      }).where(and(
+        eq(decisionRetention.companyId, input.companyId),
+        eq(decisionRetention.sourceKind, input.sourceKind),
+        eq(decisionRetention.sourceId, input.sourceId),
+        input.archived ? isNull(decisionRetention.archivedAt) : isNotNull(decisionRetention.archivedAt),
+      )).returning().then((rows) => rows[0] ?? null);
+    });
     if (!updated) {
       const current = await getState(input.companyId, input.sourceKind, input.sourceId);
       if (!current) throw notFound("Attention source not found");

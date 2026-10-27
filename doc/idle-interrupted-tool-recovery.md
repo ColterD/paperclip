@@ -50,9 +50,9 @@ one startup pass. The public combined review sweep retains its existing duties.
 
 ## Verification and limits
 
-Thirteen new real-PostgreSQL cases cover real foreground execution activation
+Sixteen new real-PostgreSQL cases cover real foreground execution activation
 and completion, configured idle and terminal history, restart/deadline timing,
-five saved terminal invocation states, first-write drain/resume, outer commit and
+six saved terminal invocation states, first-write drain/resume, outer commit and
 rollback, transactional failure/retry, concurrent claim change, and multi-page
 settlement. The service/startup selection passes 136 tests on the combined parent-review
 head. Workspace typecheck/build and migration safety checks pass on that head.

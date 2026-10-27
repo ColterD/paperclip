@@ -24,6 +24,8 @@ import { pipeline } from "node:stream/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { parseOpenCodeReasoningMode, type OpenCodeReasoningMode } from "./reasoning-mode.js";
+import { startOpenCodePerformanceDiagnostics } from "./performance-diagnostics.js";
+import { PROVIDER_PERFORMANCE_ENV } from "../../contracts/provider-performance.js";
 import { annotateOmittedProviderText, parseOpenCodeSseFrames } from "./sse-frames.js";
 import { githubCredentialEnvironment } from "../../github-credential-environment.js";
 
@@ -217,6 +219,7 @@ interface OpenCodeRuntime {
   bridge: OpenCodeMcpBridge;
   trace: ProviderTraceFileSink | null;
   sensitiveValues: readonly string[];
+  performanceDiagnostics: Awaited<ReturnType<typeof startOpenCodePerformanceDiagnostics>> | null;
   close(input?: {
     finalizeTrace?: boolean;
     reason?: string | null;
@@ -520,6 +523,7 @@ class OpenCodeHarnessSession implements HarnessSession {
   #activeTraceEmittedEventIds: string[] = [];
   #sourceSequence: number;
   #activeTurnId: string | null;
+  #performanceBoundaryMs = 0;
   #result: PrpStructuredRunResult | null;
   #resultFingerprint: string | null;
   #resultCallId: string | null;
@@ -2133,6 +2137,11 @@ class OpenCodeHarnessSession implements HarnessSession {
       });
       return;
     }
+    if (["turn.completed", "turn.failed", "turn.cancelled", "turn.interrupted"].includes(eventType)) {
+      const performance = this.#runtime.performanceDiagnostics?.take(this.#performanceBoundaryMs);
+      this.#performanceBoundaryMs = this.#now().getTime();
+      if (performance) this.#emit("harness.diagnostic", performance, refs);
+    }
     const sourceSeq = ++this.#sourceSequence;
     const event: PrpEvent = {
       schema: "paperclip.prp.event.v1",
@@ -2349,6 +2358,15 @@ async function startRuntime(input: {
     input.trace?.addSensitiveValues([providerProxy.token]);
   }
   let child: ChildProcess | undefined;
+  // Failure to collect diagnostics must not prevent the requested work.
+  const performanceDiagnostics = input.options.environment?.[PROVIDER_PERFORMANCE_ENV] === "1"
+    ? await startOpenCodePerformanceDiagnostics().catch(() => null) : null;
+  if (performanceDiagnostics) {
+    const values = [performanceDiagnostics.environment.OTEL_EXPORTER_OTLP_HEADERS,
+      performanceDiagnostics.environment.OTEL_EXPORTER_OTLP_HEADERS.replace("Authorization=Bearer ", "")];
+    sensitiveValues.push(...values);
+    input.trace?.addSensitiveValues(values);
+  }
   let launchPrepared = false;
   const releaseExecutable = () => {
     if (!launchPrepared) return;
@@ -2366,6 +2384,7 @@ async function startRuntime(input: {
       small_model: input.options.model,
       share: "disabled",
       autoupdate: false,
+      ...(performanceDiagnostics ? { experimental: { openTelemetry: true } } : {}),
       // The configured entry is already composed exactly once into the session
       // system prompt; siblings remain available through the read-only root.
       instructions: [],
@@ -2450,6 +2469,7 @@ async function startRuntime(input: {
         OPENCODE_DISABLE_DEFAULT_PLUGINS: "true",
         OPENCODE_SERVER_USERNAME: username,
         OPENCODE_SERVER_PASSWORD: password,
+        ...performanceDiagnostics?.environment,
         ...(providerProxy ? { NO_PROXY: [input.options.environment?.no_proxy ?? input.options.environment?.NO_PROXY, "127.0.0.1", "localhost"].filter(Boolean).join(",") } : {}),
       },
     );
@@ -2547,6 +2567,7 @@ async function startRuntime(input: {
       bridge,
       trace: input.trace,
       sensitiveValues,
+      performanceDiagnostics,
       close: async (closeInput = {}) => {
         await providerProxy?.close();
         await bridge.close().catch(() => {});
@@ -2570,6 +2591,7 @@ async function startRuntime(input: {
           }
           await waitForExit(providerChild, 2_000);
         }
+        await performanceDiagnostics?.close().catch(() => {});
         await rm(join(configHome, "opencode", "opencode.json"), {
           force: true,
         }).catch(() => undefined);
@@ -2580,6 +2602,7 @@ async function startRuntime(input: {
       },
     };
   } catch (error) {
+    await performanceDiagnostics?.close().catch(() => {});
     await providerProxy?.close();
     await bridge.close().catch(() => {});
     child?.kill("SIGKILL");

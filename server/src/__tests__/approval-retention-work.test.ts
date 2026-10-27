@@ -116,6 +116,31 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
     await approvalRecords(db).cancel(row.id); await quiet();
   });
 
+  it.each(["keep", "archive", "revive"] as const)("applies %s to an unseen young approval without a feed read", async action => {
+    const row = await create();
+    expect(await state(row.id)).toBeNull();
+    const retention = decisionRetentionService(db);
+    const result = action === "keep" ? await retention.setKeep({ ...mutation(row.id), keep: true })
+      : action === "archive" ? await retention.archive(mutation(row.id)) : await retention.revive(mutation(row.id));
+    expect(result).toMatchObject({ sourceKind: "approval", sourceId: row.id, sourceActivityAt: row.updatedAt, keep: action === "keep" });
+    expect(result.archivedAt).toEqual(action === "archive" ? expect.any(Date) : null);
+    expect(await state(row.id)).toMatchObject({ id: result.id, keep: action === "keep" });
+  });
+
+  it("rolls back on-demand materialization when the manual keep write fails", async () => {
+    const row = await create();
+    await db.execute(sql`create function approval_retention_fail() returns trigger language plpgsql as $$ begin
+      if NEW.keep then raise exception 'manual keep unavailable'; end if; return NEW; end $$`);
+    await db.execute(sql`create trigger approval_retention_fail before update on decision_retention for each row execute function approval_retention_fail()`);
+    await expect(decisionRetentionService(db).setKeep({ ...mutation(row.id), keep: true }))
+      .rejects.toMatchObject({ cause: { message: "manual keep unavailable" } });
+    expect(await state(row.id)).toBeNull();
+    expect(await db.select().from(activityLog).where(eq(activityLog.action, "decision_retention.keep_updated"))).toHaveLength(0);
+    await db.execute(sql`drop trigger approval_retention_fail on decision_retention`);
+    expect(await decisionRetentionService(db).setKeep({ ...mutation(row.id), keep: true })).toMatchObject({ keep: true });
+    expect(await db.select().from(activityLog).where(eq(activityLog.action, "decision_retention.keep_updated"))).toHaveLength(1);
+  });
+
   it("honors keep and wakes when an old approval is unkept", async () => {
     const row = await create(old());
     await attentionService(db).list(companyId, { all: true, allowUnscopedAll: true });
@@ -284,6 +309,16 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
     await start(); await quiet();
     await issueApprovalService(db).unlink(first.id, row.id);
     await archived(row.id); await quiet();
+  });
+
+  it("keeps a visible first linked issue eligible when a later link is hidden", async () => {
+    const row = await create(old()), one = await issue(), two = await issue();
+    const [first, second] = [one, two].sort((a, b) => a.id.localeCompare(b.id));
+    await db.update(issues).set({ hiddenAt: new Date() }).where(eq(issues.id, second.id));
+    await issueApprovalService(db).linkManyForApproval(row.id, [second.id, first.id]);
+    expect((await attentionService(db).list(companyId, { all: true, allowUnscopedAll: true })).items
+      .some(item => item.subject.id === row.id)).toBe(true);
+    await start(); await archived(row.id); await quiet();
   });
 
   it("joins an admitted sweep on shutdown and skips subsequent deadline queries", async () => {

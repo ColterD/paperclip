@@ -1,10 +1,6 @@
 import type { createDeliveryWorkCoordinator } from "./delivery-work-coordinator.js";
-import { DELIVERY_QUEUES, notifyDeliveryWork } from "./delivery-work-notifications.js";
+import { DELIVERY_QUEUES } from "./delivery-work-notifications.js";
 import type { decisionService } from "./decisions.js";
-
-export function notifyDecisionTargetWork(transaction: object, hint?: `issue:${string}` | `decision:${string}`) {
-  return notifyDeliveryWork(transaction, DELIVERY_QUEUES.decisionTargets, hint ?? "all");
-}
 
 export function registerDecisionTargetWork(
   coordinator: ReturnType<typeof createDeliveryWorkCoordinator>,
