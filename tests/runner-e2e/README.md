@@ -261,6 +261,16 @@ status, known adapters, and allowlisted outcome/check/server codes. The case
 report renders these fields explicitly; older results without the receipt remain
 valid. This diagnostic does not change the journey grade or qualify a live run.
 
+When the canonical first-task journey fails `onboarding_work_before_acceptance`,
+`productJourney.onboardingPreAcceptance` retains the failed checkpoint and every
+observed guard violation: unexpected task set, existing attachment, non-planning
+document, or first task already Done. The closed version-1 receipt contains only
+counts, whether the first task matches the canonical parent, and closed first-task
+and canonical-parent statuses. Reports validate and display these observations;
+they do not infer a product cause. Only the failing boundary is retained, without
+task/document IDs, document keys, text, or bodies. Historical results may omit the
+receipt. The original error, failed grade, and dependent blocked outcomes remain.
+
 ## Live provider connection journeys
 
 See [PROVIDER-CONNECTIONS.md](PROVIDER-CONNECTIONS.md) for the explicit-only
@@ -2983,3 +2993,22 @@ quality or survival after an abrupt worker kill.
 pnpm test:e2e:runner -- --list --suite feedback-persistence
 pnpm test:e2e:runner -- --id feedback-persistence.runner-acpx-claude.local.complaint-and-suggestion --max-automatic-retries 0 --max-parallel 1
 ```
+
+
+### Model-spend readiness and operating reconciliation
+
+A reviewed operating allowance can opt into `accountingReadiness: "model_requests"`.
+This policy requires at least one model request and complete final model-cost
+receipts before scheduled qualification succeeds. Missing or conflicting model
+receipts, active requests, failed product/cleanup/trace/feedback checks, and a
+campaign commitment above its limit still fail qualification. The gateway still
+reserves every request before forwarding it. Attempts, deadlines and concurrency
+remain bounded.
+
+The report shows the model subtotal and model-readiness status separately from
+full accounting status. Unknown operating charges remain unknown. Operating
+reservations stay in the same campaign admission allowance until reconciled;
+they are not reported as charges or converted into reviewed lifecycle bounds.
+This mode therefore does not certify a full-lifecycle operating-cost ceiling.
+Omitting the policy preserves the stricter full-accounting gate. Historical
+journals and their holds are not rewritten by changing future campaign policy.

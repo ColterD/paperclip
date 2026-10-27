@@ -12,13 +12,17 @@ Do not mark an item done from a timer removal or a green check alone.
 
 | ID | Original checklist duty | Required slices / disposition | PR / evidence |
 | --- | --- | --- | --- |
-| 01 | Custom-image setup expiry | Session writes, existing expiry, startup/retry/drain | [#17443](https://github.com/paperclipai/paperclip/pull/17443), all checks passed, Greptile 5/5 at `36844a458b` |
+| 01 | Custom-image setup expiry | Session writes, existing expiry, startup/retry/drain | [#17443](https://github.com/paperclipai/paperclip/pull/17443), merged after CI and passing reviews |
 | 02 | Remaining chat maintenance | Provider runtime discovery; voice reconciliation; milestones; wake notices; interaction continuations; terminal confirmations; GitHub recovery; Teams maintenance, separately by owner | Pending |
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
-| 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Approval retention implemented in slice 14, verification in progress; other source owners pending; notification delivery: [#17475](https://github.com/paperclipai/paperclip/pull/17475), all checks passed (Paperclip Review skipped), Greptile 5/5 at `692e3ee02c` |
-| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations: [#17478](https://github.com/paperclipai/paperclip/pull/17478), all checks passed, Greptile 5/5 at `5f96892a58`; TTL: [#17479](https://github.com/paperclipai/paperclip/pull/17479), all checks passed, Greptile 5/5 at `63b58cc26f`; effects: [#17482](https://github.com/paperclipai/paperclip/pull/17482), all checks passed, Greptile 5/5 at `a5b5994c1d`; target invalidation: [#17486](https://github.com/paperclipai/paperclip/pull/17486), all checks passed, Greptile 5/5 at `1bbfc69590` |
+| 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Retention pending; archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged after exact-head 5/5 reviews and passing current CI |
+| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479) merged; effects [#17482](https://github.com/paperclipai/paperclip/pull/17482), and targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) await current-head review/CI gates |
+
+
+
 | 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | Pending |
-| 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Secret proposals: [#17446](https://github.com/paperclipai/paperclip/pull/17446), checks passed at `d41590ac0e`; gateway credentials: [#17450](https://github.com/paperclipai/paperclip/pull/17450), all checks passed, Greptile 5/5 at `c5c53fc43f`; pending tool-review expiry: [#17453](https://github.com/paperclipai/paperclip/pull/17453), all checks passed, Greptile 5/5 at `ce6a260a83`; approved recovery: [#17454](https://github.com/paperclipai/paperclip/pull/17454), all checks passed, Greptile 5/5 at `7a1cf03e62`; interrupted claims: [#17458](https://github.com/paperclipai/paperclip/pull/17458), all checks passed, Greptile 5/5 at `85003a7ac4`; projection: [#17468](https://github.com/paperclipai/paperclip/pull/17468), all checks passed, Greptile 5/5 at `0956883a84` |
+| 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Slices 02–07 merged: [secret proposals](https://github.com/paperclipai/paperclip/pull/17446), [credentials](https://github.com/paperclipai/paperclip/pull/17450), [review expiry](https://github.com/paperclipai/paperclip/pull/17453), [approved recovery](https://github.com/paperclipai/paperclip/pull/17454), [interrupted claims](https://github.com/paperclipai/paperclip/pull/17458), [projection](https://github.com/paperclipai/paperclip/pull/17468) |
+
 | 08 | GitHub connection events and continuity | Event discovery/replay and credential continuity separately | Pending |
 | 09 | Merged-PR confirmations | Candidate writes, webhook activation where supported, outstanding-candidate fallback | Pending |
 | 10 | External-object refresh | Configuration changes, refresh deadlines, source events | Pending |
@@ -245,7 +249,7 @@ producers and request settlements use the existing review notification boundary.
 A partial index supports the first deadline. The aggregate tick now excludes
 interrupted claims; projection repair remains its own pending slice.
 
-Thirteen new worker cases and the existing service/startup selection pass
+Sixteen new worker cases and the existing service/startup selection pass
 (136 total on the combined head). Workspace typecheck/build and migration checks
 pass. Two fake-clock fixture ordering failures were corrected to wait for real
 settlement while advancing retry time. The combined tool-access run had one
@@ -306,37 +310,59 @@ initial missing-state bug and referenced-key fixture failure are recorded in the
 behavior document. Build and additional consumer regressions are running; no
 seventh PR is claimed ready yet.
 
-Fresh parent evidence: #17454 at `7a1cf03e62` and #17458 at `85003a7ac4` have
-passing CI test/build matrices and Greptile 5/5 with no unresolved findings.
-Their additional Paperclip Review checks are still queued/running. The first
-six PRs remain open; the full inventory is still in scope. Master inspected
-at `410e5c6eed` retains these recurring duties and has no migration-number
-collision (its latest journal entry is 0377).
+Historical parent evidence at the initial migration: #17454 at `7a1cf03e62`
+and #17458 at `85003a7ac4` passed the recorded CI matrices and Greptile review.
+Those snapshots preceded their current-head review and landing. The first six
+stack PRs have now merged. The full remaining inventory is still in scope.
 
-Slice 07 final local verification: 815 selected tests pass, workspace typecheck
-and build pass. One initial interaction cleanup-hook timeout is recorded in
+Initial slice 07 local verification: 815 selected tests passed, with workspace
+typecheck and build passing. One initial interaction cleanup-hook timeout is recorded in
 the behavior document; the complete isolated suite then passed. Both parent
 PRs #17454 and #17458 now have every check passed and are mergeable, including
 the additional Paperclip Review checks. Full CI/review for slice 07 is next.
 
 
+Slice 07 current integration: master `f6bc653f7f` contains the first six landed
+slices and the independent identity/resume/sidebar performance work. This slice
+adds generated concurrent interaction-link index migration `0386_steady_epoch`
+and retains five schema snapshots. Projection worker passes stop at 500 rows,
+honor abort/drain between rows, and resume past failed or unprojectable pages;
+empty reconstruction clears obsolete cursors. Six real regressions failed before
+the fixes. All 320 integrated gateway/projection/startup/deadline/identity/HTTP
+cases, server types and build pass; 35 independent master files are preserved
+exactly. Current-head CI and Greptile/Ponytail review remain required. Earlier
+case counts above describe the broader selections at their original revisions.
+
+
+Slice 07 follow-up: scoped hints avoid redundant discovery, empty sweeps avoid a
+second candidate read, and unresolved-card retries back off to five minutes.
+Fresh writes reactivate promptly and settlement is quiet. The full affected
+gateway/startup/deadline selection passes 222 cases; server types/build pass.
+The initial invalid one-wake-per-approval assertion and corrected isolated-hint
+measurement are retained in the behavior document. Current-head CI/reviews remain
+required before this slice can merge.
+
+
 ## Slice 08: decision-archive notification delivery
 
-Projection repair is #17468, head `0956883a84`, with Greptile 5/5 and no open
-findings. Latest checks are running with no failure. Slice 08 is based on that
-branch and separates archive notification delivery from retention scanning.
+Projection repair is #17468. Its bounded master integration passes local
+acceptance and awaits fresh checks and review. Slice 08 builds on that branch
+and separates archive notification delivery from retention scanning.
 The existing auto-archive transaction is the sole outbox producer. A committed
 enqueue wakes delivery; pending rows retain retries and delivering rows retain
 their saved five-minute claim deadline. Delivered history is quiet.
 
 The implementation preserves the delivery API and payload. It fences stale
 completion by claim timestamp and orders unattempted/oldest-attempted pending
-rows so failed batches do not starve later work. No table or migration is added.
-See [archive delivery](../idle-decision-archive-delivery.md).
+rows so failed batches do not starve later work. No table is added. Generated
+migration `0387_boring_professor_monster.sql` adds the concurrent partial index
+for pending delivery order. See [archive delivery](../idle-decision-archive-delivery.md).
 
-All 54 selected tests pass, including 12 new real-PostgreSQL lifecycle cases.
-Workspace typecheck/build pass. Two added-fixture failures and their corrections
-are recorded in the behavior document. Full CI/review remains required.
+All 58 selected tests pass: 15 real-PostgreSQL retention/delivery cases, 42 startup
+cases and the shared deadline worker case. Migration checks, generated snapshot
+drift, server typecheck and build pass. The initial fixture failures, stale-claim
+counter regression and corrected disabled-mode expectation are recorded in the
+behavior document. Full current-head CI and both reviews remain required.
 Retention eligibility/scanning, decision expiry, effect recovery, and decision
 continuation delivery remain independent unfinished reasons in the full ledger.
 
@@ -446,6 +472,31 @@ review repairs and adapt its own paged expiry worker to cancellation before PR
 publication. No tenth PR or readiness is claimed.
 
 
+Slice 09 review follow-up: every failed archive-proposal settlement explicitly
+creates its origin-agent continuation obligation. Three recovered-row regressions
+failed before repair and pass with exactly one wake and persisted acknowledgement.
+The current parent-integrated selection passes 111 decision/archive/startup/deadline
+cases, server types/build, fresh migration apply/replay and generated snapshot
+drift. Own unmerged index is regenerated as `0388_ambitious_micromax.sql`; parent
+386/387 migrations and journal entries are preserved. The initial skipped retention
+command and corrected 15-case run are recorded in the behavior document.
+
+Slice 09 security follow-up: sequential real decision writes reproduced six
+global continuation scans. Existing thirty-second notification coalescing now
+bounds those scans while preserving immediate foreground wakes and durable
+pending recovery. All 293 integrated decision/archive/gateway/startup/deadline
+cases and server types/build pass. The incorrect expectation of zero active
+work during the coalescing window is recorded in the behavior document; the
+intent hold remains until reconciliation. Fresh security/CI/reviews required.
+
+Eight slices are merged after archive delivery #17475. Slice 09 now reconciles
+with its exact squash `5785090ff1`; all 31 independent master files are preserved.
+The 97 decision/startup/deadline cases and server types/build pass after the
+Runner vendor rebuild. Fresh master-target CI and reviews remain required.
+
+
+
+
 ## Slice 10: decision TTL expiry
 
 The TTL implementation now includes parent continuation repairs from `5f96892a58`.
@@ -461,6 +512,27 @@ Migration replay and a 40,000-row history query probe pass (two buffers).
 Final workspace typecheck/build and fresh PR CI/review remain required.
 The parent continuation PR is awaiting fresh review/CI on `5f96892a58`, with both
 initial findings repaired and resolved. The full inventory remains in scope.
+
+Slice 10 review repair: configured batch bounds, one-second successful overdue
+continuations and atomic expiration/activity settlement pass all three previously
+failing real PostgreSQL regressions. All 129 affected expiry/continuation/archive/
+startup/deadline cases, server types/build and snapshot drift pass. Own concurrent
+index was regenerated as `0389_brave_hulk.sql`, preserving parent history. The
+initial startup-reconciliation assertion failure and corrected boundary are
+recorded in the owning behavior audit. Latest-head CI/reviews remain required.
+
+Final slice 10 parent integration passes 130 expiry/decision/archive/startup/
+deadline cases, server types/build and migration replay. The parent continuation
+coalescing and deterministic cross-pool contention regression remain intact.
+The archive parent now targets master after projection #17468 merged. Fresh
+current-head reviews and CI remain required in dependency order.
+
+Slice 10 creation signal follow-up: single and bundle creation now notify expiry
+only through the central owner. Terminal updates still signal continuation. Both
+real regressions failed before repair; all 117 current expiry/decision/startup/
+deadline cases, server types and build pass. Fresh CI/reviews remain required.
+
+
 
 
 Slice 10 is [#17479](https://github.com/paperclipai/paperclip/pull/17479), head
@@ -546,6 +618,21 @@ The continuation parent #17478 now has passing checks and Greptile 5/5 at
 agent-history route test. All 92 route tests passed locally; one failed-job retry
 was requested. This evidence does not yet establish green TTL CI. The full
 original inventory remains in scope; no stack PR has been merged.
+
+Current slice 11 parent integration passes all 141 effect/decision/expiry/startup/
+deadline cases, server types/build, generated snapshot drift and migration replay.
+The recovery index is regenerated as `0390_salty_killraven.sql`; parent history
+is unchanged. The initial overlap assertion failure and its earlier-queue deadline
+explanation are recorded in the behavior audit. Seven slices are merged; this
+PR and the remaining stack still require fresh current-head CI and both reviews.
+
+
+Slice 10 merged after exact-head Greptile/Ponytail 5/5 and all 58 check contexts
+passed or were neutral/skipped: `aa03d2c4c2` → `3421366903`. Slice 11 normally
+integrates that landed parent and all 21 independent master files. All 143 cases
+in its five complete suites pass. Its preceding CI shard interruption remains
+recorded in the owning effect-recovery audit; it is not a passing receipt. Fresh
+CI/reviews are required on the reconciled head.
 
 
 Slice 11 is [#17482](https://github.com/paperclipai/paperclip/pull/17482), head
@@ -656,6 +743,26 @@ full stack as slice 13, separately from decision retention. The disabled baselin
 issued three settings queries in 3.2 seconds. Its durable prepared dispatches,
 atomic claim, and existing uncertain-outcome policy must remain authoritative.
 
+Slice 12 review repair: deletion captures affected open decision IDs under an
+issue-row lock before links cascade. Ordinary cleanup without linked decisions
+and empty-company deletion no longer signal global work. PostgreSQL text cursors
+preserve microsecond precision. Four real regressions failed before repair;
+removing the new lock also failed a controlled concurrent-proposal test. All
+246 target/routine/decision/effect/expiry/startup/deadline cases and server
+types/build pass. The existing restrictive company-deletion FKs and explicit
+combined-service compatibility path remain documented. Fresh head gates required.
+
+
+Slice 12 final combined-sweep cleanup: the repository/package/SDK audit found no
+production consumer or public exposure of `decisionService.sweepExpired` after
+the final duty split. Removed that method, its cursor/flags/imports and the
+unneeded target-policy export. Its behavioral tests now use the four dedicated
+workers. Real isolation tests show TTL does not recover effects and effect
+recovery does not expire open decisions. All 248 cases in seven complete suites,
+server types and build pass after integrating parent `c304273b75`. This supersedes
+the earlier manual-caller compatibility claim. Both creation signals remain:
+expiry-only creation and scoped target invalidation. Fresh head gates required.
+
 
 ## Slice 13: Grok routine dispatch
 
@@ -674,6 +781,15 @@ Slice 13 final local verification also passes all 154 affected settings cases
 checks/replay, and a generic-plan query probe with 40,000 completed dispatches.
 Both queries use the prepared-only partial index with six shared buffers,
 including the routine join. Remote CI/review remain required.
+
+
+Slice 13 normally integrates target parent `85ce6545bf`. Its Grok implementation
+is unchanged; migration 0391 is regenerated after the current parent's history.
+All 389 parent journal entries are preserved and five snapshots remain. All 273
+cases across nine complete dispatch/qualification/startup/deadline/settings
+suites, server types/build, schema drift, migration safety and fresh apply/replay
+pass. Prior browser fixture-cleanup failure evidence remains in its owning audit.
+Fresh current-head CI and Greptile/Ponytail are required before merge.
 
 ## Next owner audit: decision retention
 

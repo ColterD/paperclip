@@ -1,7 +1,6 @@
-import { decisionTargetService } from "./decision-targets.js";
-import { notifyDecisionTargetWork } from "./decision-target-work.js";
+import { decisionTargetService, notifyDecisionTargetWork } from "./decision-targets.js";
 import { randomUUID } from "node:crypto";
-import { and, asc, count, desc, eq, gt, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { databaseWorkScopeKey, companyMemberships, decisionBundles, decisionEffectExecutions, decisionRetention, decisions, decisionTargetIssues, heartbeatRuns, issueRelations, issues } from "@paperclipai/db";
 import { ATTENTION_SOURCE_KINDS, decisionEffectTargetIssueIds } from "@paperclipai/shared";
@@ -17,9 +16,9 @@ import {
 import { decisionRetentionService, hashAttentionArchiveManifest } from "./decision-retention.js";
 
 import { decisionContinuationService, type DecisionContinuationWake } from "./decision-continuations.js";
-import { decisionEffectRecoveryService, decisionSweepBatchSize } from "./decision-effect-recovery.js";
+import { decisionEffectRecoveryService } from "./decision-effect-recovery.js";
 import { decisionExpiryService } from "./decision-expiry.js";
-import { notifyDecisionChange, writeDecisionChange } from "./decision-work-notifications.js";
+import { notifyDecisionCreated, writeDecisionChange } from "./decision-work-notifications.js";
 
 type Snapshot = { status: string; assigneeAgentId: string | null; assigneeUserId: string | null; updatedAt: string;
   descendantCount?: number; descendantIds?: string[]; childCount?: number; attentionArchive?: unknown };
@@ -137,7 +136,6 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
   if (!flights) effectFlights.set(scope, flights = new Map());
   const executing = flights;
   const authz = authorizationService(db);
-  let targetSweepCursor: string | null = null;
   type CreateInput = { companyId: string; actor: AuthorizationActor; agentId: string; runId: string; bundleId?: string | null;
     ruleKey?: string | null; title: string; body: string; options: DecisionOption[]; inputs?: DecisionInput[] | null; expiresAt?: Date | null;
     idempotencyKey?: string | null; continuationPolicy?: "none" | "wake_origin_agent"; metadata?: Record<string, unknown> };
@@ -241,7 +239,7 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
       ...(input.additionalTargetSnapshots ?? {}),
     };
     const id = randomUUID();
-    await notifyDecisionChange(dbOrTx);
+    await notifyDecisionCreated(dbOrTx);
     await notifyDecisionTargetWork(dbOrTx, `decision:${id}`);
     const [created] = await dbOrTx.insert(decisions).values({ id, companyId: input.companyId, bundleId: input.bundleId ?? null,
       originAgentId: input.agentId, originIssueId: provenance.issueId, originRunId: input.runId, ruleKey: input.ruleKey ?? null,
@@ -619,7 +617,7 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
         options: decision.options,
         targetSnapshots: decision.targetSnapshots as Record<string, Snapshot>,
       }), decision.signedSpec)) {
-        await writeDecisionChange(db, async tx => tx.update(decisions).set({ executionStatus: "failed", updatedAt: new Date(), metadata: { ...metadata, archiveProposalError: "invalid_signature" } })
+        await writeDecisionChange(db, async tx => tx.update(decisions).set({ executionStatus: "failed", updatedAt: new Date(), metadata: { ...metadata, archiveProposalError: "invalid_signature", ...(decision.continuationPolicy === "wake_origin_agent" ? { continuationPending: true } : {}) } })
           .where(and(eq(decisions.id, decision.id), eq(decisions.executionStatus, "running"))));
         return outcome(decision.id);
       }
@@ -630,7 +628,7 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
         );
         const manifestHash = manifest ? hashAttentionArchiveManifest(manifest) : null;
         if (!manifest || manifestHash !== metadata.manifestHash) {
-          await writeDecisionChange(db, async tx => tx.update(decisions).set({ executionStatus: "failed", updatedAt: new Date(), metadata: { ...metadata, archiveProposalError: "manifest_mismatch" } })
+          await writeDecisionChange(db, async tx => tx.update(decisions).set({ executionStatus: "failed", updatedAt: new Date(), metadata: { ...metadata, archiveProposalError: "manifest_mismatch", ...(decision.continuationPolicy === "wake_origin_agent" ? { continuationPending: true } : {}) } })
             .where(and(eq(decisions.id, decision.id), eq(decisions.executionStatus, "running"))));
           return outcome(decision.id);
         }
@@ -652,7 +650,7 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : "archive_proposal_failed";
-          await writeDecisionChange(db, async tx => tx.update(decisions).set({ executionStatus: "failed", updatedAt: new Date(), metadata: { ...metadata, archiveProposalError: message } })
+          await writeDecisionChange(db, async tx => tx.update(decisions).set({ executionStatus: "failed", updatedAt: new Date(), metadata: { ...metadata, archiveProposalError: message, ...(decision.continuationPolicy === "wake_origin_agent" ? { continuationPending: true } : {}) } })
             .where(and(eq(decisions.id, decision.id), eq(decisions.executionStatus, "running"))));
           return outcome(decision.id);
         }
@@ -764,29 +762,7 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
     return true;
   }
 
-  async function sweepExpired(now = new Date(), options: { includeContinuations?: boolean; includeExpiry?: boolean; includeEffects?: boolean; includeTargets?: boolean } = {}) {
-    const batchSize = decisionSweepBatchSize();
-    const { resumed } = options.includeEffects === false ? { resumed: 0 } : await effectRecovery.sweep(now, batchSize);
-    if (options.includeContinuations !== false) await continuations.sweep(batchSize);
-    const ttlRows = options.includeExpiry === false ? [] : await expiry.due(now, batchSize);
-    const remaining = batchSize - ttlRows.length;
-    const targetRows = options.includeTargets !== false && remaining > 0
-      ? await db.select().from(decisions)
-        .where(and(eq(decisions.status, "open"), ...(targetSweepCursor ? [gt(decisions.id, targetSweepCursor)] : [])))
-        .orderBy(asc(decisions.id)).limit(remaining)
-      : [];
-    targetSweepCursor = targetRows.length === remaining && targetRows.length > 0 ? targetRows[targetRows.length - 1]!.id : null;
-    const rows = [...new Map([...ttlRows, ...targetRows].map((row) => [row.id, row])).values()]; let expired = 0;
-    for (const decision of rows) {
-      const invalid = options.includeTargets === false ? null : await targets.reason(decision);
-      if (!invalid && (options.includeExpiry === false || decision.expiresAt > now)) continue;
-      const reason = invalid ?? "ttl";
-      expired += await expiry.expire(decision, reason, now);
-    }
-    return { expired, resumed };
-  }
-
-  return { create, createBundle, get, list, stats, outcome, decide, cancel, dismiss, sweepExpired, sweepContinuations: continuations.sweep,
+  return { create, createBundle, get, list, stats, outcome, decide, cancel, dismiss, sweepContinuations: continuations.sweep,
     sweepTtlExpiry: expiry.sweep, nextExpiryAt: expiry.next,
     recoverEffects: effectRecovery.sweep, nextEffectRecoveryAt: effectRecovery.next,
     sweepInvalidTargets: targets.sweep, decisionTargetsChanged: targets.changed, hasDecisionTargetWork: targets.hasPending };
