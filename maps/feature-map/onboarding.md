@@ -142,6 +142,15 @@ admit new work. [Admission controls](../../server/src/__tests__/onboarding-first
 exercise native and REST calls against disposable PostgreSQL; live model and
 Cloud onboarding remain separate evidence.
 
+Native completion also requires a saved human proposal decision. An opening
+answer alone must leave the first task in review. Verify that premature native
+completion is refused, including a result already saved before finalization.
+Accepted proposals and acknowledged human rejections can close the first task;
+rejection still does not authorize new tasks. The
+[native completion controls](../../server/src/services/native-runtime/paperclip-control-plane-port.test.ts)
+exercise these boundaries against disposable PostgreSQL. These controls do not
+identify a historical Cloud failure or establish live onboarding success.
+
 For accepted file-producing work, verify exactly one self-assigned child with a
 self-contained description. The onboarding run must yield through the existing
 dependency/block disposition so the child's own execution can publish its file.

@@ -507,6 +507,7 @@ const MIGRATIONS_WITH_TOP_LEVEL_STATEMENTS = new Set([
   "0386_steady_epoch.sql",
   "0387_boring_professor_monster.sql",
   "0388_ambitious_micromax.sql",
+
   "0384_funny_adam_warlock.sql",
   "0383_tool_review_company_expiry.sql",
 ]);
