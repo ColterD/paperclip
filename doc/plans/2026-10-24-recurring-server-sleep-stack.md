@@ -15,7 +15,7 @@ Do not mark an item done from a timer removal or a green check alone.
 | 01 | Custom-image setup expiry | Session writes, existing expiry, startup/retry/drain | [#17443](https://github.com/paperclipai/paperclip/pull/17443), merged after CI and passing reviews |
 | 02 | Remaining chat maintenance | Provider runtime discovery; voice reconciliation; milestones; wake notices; interaction continuations; terminal confirmations; GitHub recovery; Teams maintenance, separately by owner | Pending |
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
-| 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Retention pending; archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged after exact-head 5/5 reviews and passing current CI |
+| 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Approval retention implemented in slice 14; current review/CI pending; other source retention pending; archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged after exact-head 5/5 reviews and passing current CI |
 | 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479) merged; effects [#17482](https://github.com/paperclipai/paperclip/pull/17482), and targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) await current-head review/CI gates |
 
 
@@ -977,3 +977,14 @@ existing feed item. Preserve that policy. Retention controls and company status
 changes must notify this owner. Decision retention remains separately pending;
 its visibility dependencies differ, and normal decisions already have a
 maximum 30-day TTL before the 90-day archive threshold.
+
+
+Slice 14 current review repairs: share first-linked-issue/execution visibility in
+one owner used by the feed and worker; keep actor read filtering. Materialize
+unseen approvals inside existing manual retention transactions, locking the
+source before state mutation. Four real failures (three 404s and atomic keep
+rollback) are repaired; the reverse visibility-order regression also passes.
+All 26 lifecycle cases and all 311 cases across eight complete consumer suites,
+server types/build, schema drift, migration safety and fresh apply/replay pass.
+Index 0392 is generated after all 390 unchanged parent journal entries; five
+snapshots remain. Current parent is `679f523d78`; fresh head gates remain required.

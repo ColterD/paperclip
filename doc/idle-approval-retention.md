@@ -93,3 +93,36 @@ are relevant consumers. Track final results and any failures in the PR and the
 The Cloud sleep guards are unchanged. An in-process deadline cannot wake stopped
 compute, and this approval deadline has not been added to Cloud's durable wake
 contract. This proves only the named worker's quiet/reactivation behavior.
+
+
+## Review repair and current verification
+
+The feed and retention worker now share `approval-visibility.ts` for the first
+linked issue and its execution visibility. The feed still applies actor-specific
+read access before including a linked approval. Both link orders are covered:
+hidden first/visible later stays excluded; visible first/hidden later stays
+eligible. The worker's current-state recheck remains under the approval row lock.
+
+Manual keep, archive and revive materialize an unseen approval on demand inside
+the existing retention write transaction. They lock the company-scoped approval
+row in the same order as automatic archival, read its real activity timestamp,
+and use the existing versioned `syncItems` operation. Missing or unauthorized
+sources retain their existing rejection; other source kinds are unchanged. This
+adds no eager startup materialization or recurring scan.
+
+Four real regressions failed before repair: unseen young keep/archive/revive
+returned 404, and the atomic materialization test could not reach the keep write.
+All pass after repair. A failing keep update rolls back the inserted retention
+row and emits no audit; the next successful keep persists exactly one audit.
+All 26 lifecycle cases pass, including the existing timestamp-precision failure
+rotation. The complete eight-suite consumer selection passes 311 cases at
+`063b61584d`: approval worker/service, attention, retention, budget, tool gateway,
+startup and scoped deadlines. Server typecheck and production build pass.
+
+Normal parent reconciliation preserves every historical parent SQL file and all
+390 parent journal entries. The approval index is regenerated through the normal
+workflow as concurrent/idempotent `0392_small_frightful_four.sql`; five generated
+snapshots remain (0388–0392). Schema drift, safety/numbering and actual fresh
+migration apply/replay on five isolated PostgreSQL databases pass. Earlier
+transaction-stub, budget-import, query-probe and CI failures remain recorded in
+the stack ledger. Fresh current-head CI and both reviews are required.
