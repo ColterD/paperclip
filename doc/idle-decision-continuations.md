@@ -149,3 +149,26 @@ first combined command used the wrong retention DB variable and skipped those
 typecheck and build pass. The historical nine embedded-only work-signal skips
 above are not reclassified as executed by this selection. Fresh CI and reviews
 remain required.
+
+
+## Bounded notification-driven recovery
+
+Security review identified that sequential decision writes could each start an
+instance-wide continuation scan. A real-producer regression reproduced six
+sweeps for six sequential cancellations. The worker now uses the existing
+`notificationCoalesceMs: 30_000` option. The first wake after a quiet window still
+reconciles promptly, and subsequent notifications in that window share its end
+deadline. Foreground continuation delivery is unchanged and immediate. Recovery
+can wait up to thirty seconds, matching the prior maintenance cadence. This
+bounds global scan frequency; it does not make queries company-scoped or add a
+cross-process notification contract.
+
+The regression verifies one scan during repeated real create/cancel writes,
+retention and eventual delivery of a later pending row, and no recurring SQL
+after settlement. Its first green attempt wrongly expected zero active work
+while the coalesced request was pending. The existing intent hold correctly
+remains until reconciliation; the test now checks that hold's actual terminal
+boundary through the existing quiet assertion. No production hold was removed.
+All 293 integrated cases across decisions, archive, gateway/projection, startup
+and scoped-deadline suites pass without skips; server types/build pass. Fresh
+security review, Greptile, Ponytail and exact-head CI remain merge gates.

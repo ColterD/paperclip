@@ -475,3 +475,11 @@ cases, server types/build, fresh migration apply/replay and generated snapshot
 drift. Own unmerged index is regenerated as `0388_ambitious_micromax.sql`; parent
 386/387 migrations and journal entries are preserved. The initial skipped retention
 command and corrected 15-case run are recorded in the behavior document.
+
+Slice 09 security follow-up: sequential real decision writes reproduced six
+global continuation scans. Existing thirty-second notification coalescing now
+bounds those scans while preserving immediate foreground wakes and durable
+pending recovery. All 293 integrated decision/archive/gateway/startup/deadline
+cases and server types/build pass. The incorrect expectation of zero active
+work during the coalescing window is recorded in the behavior document; the
+intent hold remains until reconciliation. Fresh security/CI/reviews required.

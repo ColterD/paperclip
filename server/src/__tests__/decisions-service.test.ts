@@ -755,10 +755,10 @@ describePg("decisionService", () => {
       };
       vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"], shouldAdvanceTime: true });
     });
-    async function start() {
+    async function start(svc = workerService()) {
       coordinator = createDeliveryWorkCoordinator({ owner: db, canRun: () => !draining,
         canReconcile: () => true, onError: error => errors.push(error) });
-      await registerDecisionContinuationWork(coordinator, workerService(), () => !draining).ready;
+      await registerDecisionContinuationWork(coordinator, svc, () => !draining).ready;
     }
     async function quiet() {
       await vi.waitFor(async () => {
@@ -779,6 +779,30 @@ describePg("decisionService", () => {
     }
     const markReady = (id: string, source = db) => writeDecisionChange(source, async tx => tx.update(decisions)
       .set({ status: "cancelled", metadata: { continuationPending: true } }).where(eq(decisions.id, id)));
+
+    it("coalesces sequential tenant writes without dropping pending recovery", async () => {
+      const row = await createCommentDecision();
+      const svc = workerService(), sweep = vi.spyOn(svc, "sweepContinuations");
+      await start(svc); await quiet(); sweep.mockClear();
+      await svc.cancel(row.id, { actorType: "agent", actorId: agentId });
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.waitFor(() => expect(idleWorkSnapshot().active).toBe(0));
+      expect(sweep).toHaveBeenCalledTimes(1);
+      for (let i = 0; i < 5; i++) {
+        const next = await createCommentDecision();
+        await svc.cancel(next.id, { actorType: "agent", actorId: agentId });
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+      expect(sweep).toHaveBeenCalledTimes(1);
+      const recovery = await createCommentDecision();
+      await markReady(recovery.id);
+      await vi.advanceTimersByTimeAsync(1000);
+      await pending(recovery.id);
+      expect(sweep).toHaveBeenCalledTimes(1);
+      await quiet(); await delivered(recovery.id);
+      expect(sweep).toHaveBeenCalledTimes(2);
+      expect(wake.mock.calls.filter(([input]) => input.decisionId === recovery.id)).toHaveLength(1);
+    });
 
     it.each(["decide", "cancel", "dismiss", "expire"] as const)("reactivates from real %s and leaves delivered history quiet", async action => {
       const row = await createCommentDecision();
