@@ -233,9 +233,13 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
       await vi.waitFor(async () => expect((await service().get(row.id))?.executionStatus).toBe("running"));
       const claimed = (await service().get(row.id))!;
       const deadline = claimed.updatedAt.getTime() + 60_000;
-      // Let the committed-claim discovery finish before advancing to its deadline.
-      // Startup and notification scans are separate from the recovery we test.
-      await vi.waitFor(() => expect(coordinator!.nextWakeAt()).toBe(deadline));
+      await vi.waitFor(async () => {
+        const scheduled = coordinator!.nextWakeAt();
+        if (scheduled !== null && scheduled < deadline) {
+          await vi.advanceTimersByTimeAsync(Math.max(1, scheduled - Date.now()));
+        }
+        expect(coordinator!.nextWakeAt()).toBe(deadline);
+      });
       await vi.waitFor(() => expect(effectLockAttempts).toBe(2)); // Test gate + foreground execution.
       const sweeps = vi.mocked(recovery.recoverEffects);
       const beforeDeadline = sweeps.mock.calls.length;

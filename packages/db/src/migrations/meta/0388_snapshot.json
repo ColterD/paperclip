@@ -1,6 +1,6 @@
 {
-  "id": "f5ad43a8-3b4f-4613-849b-7dafd863a8cc",
-  "prevId": "8edee62d-dbde-4e07-9088-6232bb553e77",
+  "id": "4f21a636-735f-4dce-9ab8-0583f3bc7b79",
+  "prevId": "de27fdf8-430a-443a-9502-725f92c48892",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -22110,6 +22110,34 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "decision_archive_notification_outbox_delivery_idx": {
+          "name": "decision_archive_notification_outbox_delivery_idx",
+          "columns": [
+            {
+              "expression": "last_attempt_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "first"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"decision_archive_notification_outbox\".\"status\" = 'pending'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -24026,50 +24054,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "decisions_running_recovery_idx": {
-          "name": "decisions_running_recovery_idx",
-          "columns": [
-            {
-              "expression": "updated_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"decisions\".\"status\" = 'decided' AND \"decisions\".\"execution_status\" = 'running'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "decisions_open_expiry_idx": {
-          "name": "decisions_open_expiry_idx",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"decisions\".\"status\" = 'open'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -52959,6 +52943,27 @@
           "columns": [
             {
               "expression": "invocation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tool_action_requests_company_interaction_idx": {
+          "name": "tool_action_requests_company_interaction_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "interaction_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

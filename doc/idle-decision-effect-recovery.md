@@ -102,7 +102,7 @@ service cases, 14 TTL cases, 39 startup cases, and 92 agent-history route cases.
 The first 15-case recovery run also passed. Workspace typecheck/build and the
 final server typecheck pass. No failure was suppressed or timeout increased.
 
-Migration 0384 adds one partial index concurrently, with `IF NOT EXISTS`, through
+The current regenerated migration `0390_salty_killraven.sql` adds one partial index concurrently, with `IF NOT EXISTS`, through
 the migration owner's top-level statement path. Generation retains the newest
 five schema snapshots. Fresh application, replay, safety, and numbering checks
 pass. With 40,000 completed decisions and one running claim, both due selection
@@ -203,3 +203,28 @@ coalescing capability is promoted from the later plugin scheduling slice into th
 PR; consumers that omit it keep their previous behavior. The integrated stack is
 verified separately before publication. The original full-suite and external-wake
 limitations remain.
+
+
+## Current parent integration
+
+The expiry and continuation review repairs are integrated normally. The running
+claim index is regenerated as 0390 after parent 0388/0389, with concurrent creation
+registered in the existing executor. All 388 parent journal entries are unchanged;
+the five newest generated snapshots remain. Schema drift, numbering/safety and
+fresh migration apply/replay pass. No generated snapshot was hand-edited.
+
+All 141 cases in the five complete effect-recovery, decision/continuation, expiry,
+startup and scoped-deadline suites pass. This includes all 26 recovery cases and
+the parent's deterministic cross-pool archive contention test. Server types and
+build pass. The first integrated run passed 140 cases and failed an old scheduler
+assertion: the coordinator now also holds an earlier continuation-coalescing
+deadline. The overlap test services that earlier registered wake, then still
+requires the original effect grace deadline, one active effect flight, two total
+advisory-lock attempts (test gate plus foreground), one committed effect and one
+continuation. No production timing or retry was changed to pass the test.
+
+Existing one-second effect-notification coalescing and thirty-second failure
+retry remain. Continuation notification coalescing is owned separately by the
+parent. Extra upstream embedded-only tests attempted during parent integration
+could not initialize locally; fresh current-head CI must cover that environment.
+Full CI and both automated reviews remain merge gates.

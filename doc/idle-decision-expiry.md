@@ -38,9 +38,11 @@ retained terminal history does not enlarge the deadline lookup. Expiry is due
 when `expiresAt <= now`, including equality. The old combined path skipped the
 exact equality despite selecting that row; this migration fixes that boundary.
 
-Each worker pass attempts at most 100 candidates ordered by expiry and ID.
+Each worker pass honors `PAPERCLIP_DECISIONS_SWEEP_BATCH_SIZE` (default 100),
+ordered by expiry and ID.
 Its in-memory cursor advances across failures and wraps after the last page.
-Remaining overdue work retains a retry through the saved earliest deadline.
+Remaining overdue work retains a one-second continuation through the saved
+earliest deadline after a successful pass.
 Failures retain the existing 30-second retry throttle. New earlier creation or
 resolution of the earliest decision causes deadline reconciliation. When only a
 future expiry remains, the worker does not query again until that deadline or a
@@ -48,7 +50,9 @@ committed change. No open decisions means no recurring expiry work.
 
 Settlement requires the row to remain open. TTL settlement also rechecks that
 the saved deadline is due. Metadata is merged into the current row. The existing
-expiry activity and origin continuation are preserved. A deadline-driven expiry
+expiry activity is persisted in the same transaction as the terminal transition.
+Publication and origin continuation follow commit. If the audit insert fails,
+the expiry and continuation obligation both roll back. A deadline-driven expiry
 records `ttl`; target-driven expiration retains its own reason. When both causes
 are possible, the first successful terminal transition determines the reason.
 Continuation failures belong to the continuation worker after the decision is
@@ -71,8 +75,8 @@ suspension.
 
 ## Verification
 
-The combined selection passes 103 tests: 14 new real-PostgreSQL expiry worker
-cases, 50 decision service/continuation cases, and 39 startup cases. It covers
+The original combined selection passed 103 tests: 14 initial real-PostgreSQL expiry worker
+cases, 50 decision service/continuation cases, and 39 startup cases. It covered
 empty and terminal-history quiet, actual create and bundle producers, exact
 expiry, moving the next deadline earlier, cancellation, restart, outer rollback
 and commit, first creation during drain, failed retry through drain, failed wake
@@ -86,7 +90,8 @@ checks all collected causes after recovery settles. The next selection passed
 101 cases; after the parent review repairs and bounded expiry/shutdown coverage,
 all 103 pass. No production hold, retry, or timeout was weakened.
 
-Migration 0383 applies and replays successfully. With 40,000 synthetic decisions
+The original index applied and replayed successfully; after normal parent
+integration it is regenerated as `0389_brave_hulk.sql`. Fresh apply also passes. With 40,000 synthetic decisions
 and one open row, the next-deadline query uses the partial index, reads two shared
 buffers, and executes in 0.022 ms locally. The probe transaction rolls back. This
 is query evidence, not a production latency or savings claim. Workspace
@@ -101,3 +106,45 @@ text into its tuple comparison; business deadline calculations still use Date.
 The regression failed before the fix and verifies progress past the failed page,
 then recovery of all failed rows after the fault is removed.
 The repaired expiry suite passes all 15 cases, and server typechecking passes.
+
+
+## Current review repairs and verification
+
+Three review findings failed real PostgreSQL regressions before repair: the
+standalone worker ignored the configured batch limit, a successful overdue
+backlog waited thirty seconds between batches, and a failed audit write left the
+row expired without durable activity. The worker now honors its existing batch
+configuration and continues successful overdue work after one second. The
+shared deadline adapter accepts an optional `continuationMs`; omitted values
+preserve every existing consumer's retry interval. Errors still retain the
+existing thirty-second retry. Expiry and durable activity commit atomically,
+then publish activity and deliver the origin continuation. Provider calls stay
+outside that transaction.
+
+All 129 selected cases pass: 18 expiry, 53 decision/continuation, 15 archive, 42
+startup and one scoped-deadline case. The archive selection exercises an existing
+shared-deadline consumer with the new option absent. Server typecheck/build and
+generated snapshot/schema drift pass. Parent journal entries remain unchanged
+and five generated snapshots remain. No snapshot was hand-edited.
+
+The first complete selection passed 113 cases and failed the future-startup
+assertion because it inspected the scheduler before an additional committed
+notification reconciliation finished. Coordinator `ready` awaits the first
+admitted pass, while a notification arriving during that pass can schedule
+another immediate pass. The assertion now waits for reconciliation to expose
+the exact saved future deadline, then still proves the decision does not expire
+early. The three production regressions and this fixture failure remain
+recorded; no error retry or business deadline was relaxed to pass the tests.
+Fresh current-head CI and reviews remain merge gates.
+
+
+After normal integration of continuation recovery's final coalescing and
+deterministic contention tests and pinned master `8161f2a813`, all 130 selected
+cases pass: 76 expiry/archive/startup/deadline cases plus all 54 decision cases.
+Server types/build pass. Existing notification coalescing remains thirty
+seconds for continuation recovery; expiry's successful backlog continuation is
+one second, and failure retry remains thirty seconds. Migration replay reports
+no pending migrations and the parent journal remains an exact prefix. Extra
+upstream embedded-only tests attempted during parent integration could not
+initialize locally; fresh CI must cover that environment, as recorded in the
+archive parent PR.

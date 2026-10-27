@@ -31,6 +31,28 @@ const object = (v: unknown): Record<string, unknown> =>
     : {};
 const string = (v: unknown) =>
   typeof v === "string" && v.length > 0 ? v : null;
+const historyResult = sql<Record<string, unknown> | null>`case
+  when jsonb_typeof(${heartbeatRuns.resultJson}) = 'object' then (
+    select coalesce(jsonb_object_agg(field.key, case
+      when field.key = 'apiToolReceipts' and jsonb_typeof(field.value) = 'object' then (
+        select coalesce(jsonb_object_agg(receipt.key, (
+          select jsonb_object_agg(detail.key, detail.value)
+          from jsonb_each(receipt.value) as detail(key, value)
+          where detail.key in ('state', 'operationId', 'result')
+        )), '{}'::jsonb)
+        from jsonb_each(field.value) as receipt(key, value)
+        where receipt.value->'state' = '"completed"'::jsonb
+          and jsonb_typeof(receipt.value->'operationId') = 'string'
+      )
+      when field.key = 'workspaceRestoreRecovery' and jsonb_typeof(field.value) = 'object' then (
+        select coalesce(jsonb_object_agg(detail.key, detail.value), '{}'::jsonb)
+        from jsonb_each(field.value) as detail(key, value)
+        where detail.key = 'schema'
+      )
+      else field.value end), '{}'::jsonb)
+    from jsonb_each(${heartbeatRuns.resultJson}) as field(key, value)
+    where field.key in ('apiToolReceipts', 'conversationContinuation', 'workspaceRestoreFailure', 'workspaceRestoreRecovery')
+  ) else ${heartbeatRuns.resultJson} end`;
 export function continuationOriginCommentIds(context: unknown): string[] {
   const c = object(context);
   const prior = object(c.executionContinuation);
@@ -335,7 +357,7 @@ export async function buildExecutionContinuation(input: {
       ? { kind: "description" as const, id: issue.id, revision: hashObjectiveSource(issue.description) }
       : { kind: "title" as const, id: issue.id, revision: hashObjectiveSource(issue.title) };
   const priorRuns = await db
-    .select({ id: heartbeatRuns.id, result: heartbeatRuns.resultJson, status: heartbeatRuns.status, errorCode: heartbeatRuns.errorCode, runtimeMode: heartbeatRuns.runtimeMode, retryOfRunId: heartbeatRuns.retryOfRunId })
+    .select({ id: heartbeatRuns.id, result: historyResult, status: heartbeatRuns.status, errorCode: heartbeatRuns.errorCode, runtimeMode: heartbeatRuns.runtimeMode, retryOfRunId: heartbeatRuns.retryOfRunId })
     .from(heartbeatRuns)
     .where(
       and(

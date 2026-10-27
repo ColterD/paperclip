@@ -98,7 +98,7 @@ the embedded runtime is unavailable; CI must run that supported environment.
 Workspace typecheck and build pass. The final literal-predicate adjustment also
 passes all 49 decision tests before the additional archive-race regression.
 
-Migration 0382 applies and replays without error. A rolled-back synthetic
+The original continuation index applied and replayed without error. After parent integration it is generated migration `0388_ambitious_micromax.sql`; the fresh apply and replay also pass. A rolled-back synthetic
 40,000-row history with one pending continuation uses the partial index under
 `force_generic_plan`, reads two shared buffers, and executes in 0.015 ms on the
 local PostgreSQL server. This is query evidence, not a production latency claim.
@@ -124,3 +124,61 @@ The existing tool-review and archive-delivery consumers also pass 124 real-DB
 tests after AbortSignal propagation. Together with the decision/startup/signal
 selection, 217 selected tests pass; the same nine older embedded-only cases
 remain locally skipped. Workspace typecheck passes after the outcome type fix.
+
+
+## Explicit archive-failure delivery
+
+The three archive-proposal failure paths now explicitly set
+`continuationPending: true` for `wake_origin_agent`, rather than assuming the
+pre-read running row already carries that metadata. The existing running-state
+fence remains, so stale settlement cannot re-arm an acknowledged result.
+Invalid signatures, manifest mismatches and archive execution failures each
+failed a real-PostgreSQL recovery regression before repair. Each now saves the
+failed result, wakes once, acknowledges delivery and remains quiet on replay.
+
+Normal parent integration preserves the projection interaction-link index and
+archive pending-order index. The unmerged continuation index was regenerated
+as 0388 from the parent's generated metadata; every parent journal entry is
+unchanged, five snapshots remain, the SQL uses the existing top-level concurrent
+executor, and snapshot/schema drift passes. No generated snapshot was hand-edited.
+
+The final affected selection passes 111 cases: 53 decisions, 15 retention/archive,
+42 startup and one scoped-deadline case, with all four suites exercised. The
+first combined command used the wrong retention DB variable and skipped those
+15 cases; the corrected external-PostgreSQL retention run passes all 15. Server
+typecheck and build pass. The historical nine embedded-only work-signal skips
+above are not reclassified as executed by this selection. Fresh CI and reviews
+remain required.
+
+
+## Bounded notification-driven recovery
+
+Security review identified that sequential decision writes could each start an
+instance-wide continuation scan. A real-producer regression reproduced six
+sweeps for six sequential cancellations. The worker now uses the existing
+`notificationCoalesceMs: 30_000` option. The first wake after a quiet window still
+reconciles promptly, and subsequent notifications in that window share its end
+deadline. Foreground continuation delivery is unchanged and immediate. Recovery
+can wait up to thirty seconds, matching the prior maintenance cadence. This
+bounds global scan frequency; it does not make queries company-scoped or add a
+cross-process notification contract.
+
+The regression verifies one scan during repeated real create/cancel writes,
+retention and eventual delivery of a later pending row, and no recurring SQL
+after settlement. Its first green attempt wrongly expected zero active work
+while the coalesced request was pending. The existing intent hold correctly
+remains until reconciliation; the test now checks that hold's actual terminal
+boundary through the existing quiet assertion. No production hold was removed.
+All 293 integrated cases across decisions, archive, gateway/projection, startup
+and scoped-deadline suites pass without skips; server types/build pass. Fresh
+security review, Greptile, Ponytail and exact-head CI remain merge gates.
+
+
+The archive contention regression no longer waits a fixed 100 ms. A dedicated
+single-connection contender signals its decision read; two FIFO SQL round trips
+then establish that it reached shared execution while the first archive remains
+held. The test requires one contender decision read and one archive execution.
+Temporarily removing the effect-flight guard made this test fail (two reads);
+restoring the production guard passes. The mutation was restored before commit.
+This verifies actual cross-pool contention without a timing delay or a new
+production-only test hook.
