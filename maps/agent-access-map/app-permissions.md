@@ -94,8 +94,12 @@ Gaps: This individual operation has source review but no recorded HTTP verificat
 API: `present` — `PUT /api/tool-connections/{connectionId}/installs`; JSON REST.
 Agent access: `available` — agent REST and default native `search_api` / `call_api`.
 Policy: `tools:manage_profiles` and `tools:manage_connections`; [shared management policy](../../doc/plans/2026-10-13-connection-api-parity.md#authorization-contract). Resolved resources and every affected target are checked; personal ownership remains the responsible user.
+Only new installation targets receive the app-profile binding. Existing targets
+retain their saved profile assignments, including deliberately removed grants.
+Non-empty saves still remove legacy connection-wide include entries from the
+managed app profile when no new targets are added.
 Evidence: `source-only` — [route](../../server/src/routes/tool-access.ts); reviewed in the working tree based on the source commit above.
-Verification: `not-run` — individual operation not executed in this audit; shared authorization and representative family flows are exercised by the authenticated integration suite. Follow the route schema, inspect persistence/audit, and assert owner, scope and revoked-authority denial.
+Verification: `not-run` — individual agent-authenticated operation not executed in this audit; shared authorization and representative family flows are exercised by the authenticated integration suite. [Installation permission regressions](../../server/src/__tests__/tool-connection-installs.test.ts) exercise operator HTTP requests, persisted assignments, tool-policy decisions, and access-extension audit records with PostgreSQL. Those fixtures do not qualify agent authentication. Follow the route schema, inspect persistence/audit, and assert owner, scope and revoked-authority denial.
 Gaps: This individual operation has source review but no recorded HTTP verification. Provider availability and live setup remain unqualified.
 ## `action-policy`
 
