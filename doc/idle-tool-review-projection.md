@@ -193,3 +193,11 @@ deadline suites pass, with no skipped cases. The five initial regressions and
 sixth cursor regression failed before their fixes; server types and build pass.
 The earlier 219-case acceptance remains evidence for the preceding revision.
 Fresh integrated-head CI and both automated reviews remain merge gates.
+
+
+After normal reconciliation with master `f6bc653f7f`, all 320 integrated cases
+pass, including the 81 authenticated gateway HTTP cases and the upstream narrowed
+identity-read tests. Server types and build pass. Thirty-five independent master
+performance files are preserved exactly; the gateway's narrowed identity read
+is preserved alongside the projection extraction. The pre-integration 220-case
+selection above remains evidence for its stated revision.

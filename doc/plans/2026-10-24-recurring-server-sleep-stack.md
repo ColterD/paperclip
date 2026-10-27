@@ -304,15 +304,25 @@ initial missing-state bug and referenced-key fixture failure are recorded in the
 behavior document. Build and additional consumer regressions are running; no
 seventh PR is claimed ready yet.
 
-Fresh parent evidence: #17454 at `7a1cf03e62` and #17458 at `85003a7ac4` have
-passing CI test/build matrices and Greptile 5/5 with no unresolved findings.
-Their additional Paperclip Review checks are still queued/running. The first
-six PRs remain open; the full inventory is still in scope. Master inspected
-at `410e5c6eed` retains these recurring duties and has no migration-number
-collision (its latest journal entry is 0377).
+Historical parent evidence at the initial migration: #17454 at `7a1cf03e62`
+and #17458 at `85003a7ac4` passed the recorded CI matrices and Greptile review.
+Those snapshots preceded their current-head review and landing. The first six
+stack PRs have now merged. The full remaining inventory is still in scope.
 
-Slice 07 final local verification: 815 selected tests pass, workspace typecheck
-and build pass. One initial interaction cleanup-hook timeout is recorded in
+Initial slice 07 local verification: 815 selected tests passed, with workspace
+typecheck and build passing. One initial interaction cleanup-hook timeout is recorded in
 the behavior document; the complete isolated suite then passed. Both parent
 PRs #17454 and #17458 now have every check passed and are mergeable, including
 the additional Paperclip Review checks. Full CI/review for slice 07 is next.
+
+
+Slice 07 current integration: master `f6bc653f7f` contains the first six landed
+slices and the independent identity/resume/sidebar performance work. This slice
+adds generated concurrent interaction-link index migration `0386_steady_epoch`
+and retains five schema snapshots. Projection worker passes stop at 500 rows,
+honor abort/drain between rows, and resume past failed or unprojectable pages;
+empty reconstruction clears obsolete cursors. Six real regressions failed before
+the fixes. All 320 integrated gateway/projection/startup/deadline/identity/HTTP
+cases, server types and build pass; 35 independent master files are preserved
+exactly. Current-head CI and Greptile/Ponytail review remain required. Earlier
+case counts above describe the broader selections at their original revisions.
