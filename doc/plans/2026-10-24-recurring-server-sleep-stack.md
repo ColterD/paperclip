@@ -1036,3 +1036,12 @@ preserves cursor precision in the owning query. All 87 workspace service/worker
 cases and server typechecking pass. See
 [workspace pagination](../idle-terminal-workspace-pagination.md). Publication and
 fresh CI/review are next. Join retention remains the next new migration duty.
+
+
+Terminal workspace precision follow-up #17505 normally integrates approval wake
+parent `3efda33812`. All 136 cases across four complete workspace/worker/rehome/
+nested-clone suites, server types and build pass at `9d846c84e7`. The preceding
+`f0f0de1f6f` run passed the same cases on three freshly created unmigrated fixtures;
+the suites prepared their own schemas. Current reused-fixture evidence and old
+starvation/clock/setup failures are distinguished in its owning audit. No new
+schema or wake mechanism. Fresh head CI and reviews required; parent unmerged.
