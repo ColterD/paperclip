@@ -1,3 +1,4 @@
+import { toolReviewProjectionService } from "../services/tool-review-projection.js";
 import { registerToolReviewProjectionWork } from "../services/tool-review-projection-work.js";
 import { issueThreadInteractionService } from "../services/issue-thread-interactions.js";
 import { registerToolReviewInterruptionWork } from "../services/tool-review-interruption-work.js";
@@ -551,6 +552,79 @@ describeEmbeddedPostgres("tool gateway service", () => {
         expect(updates).toHaveLength(1);
         expect(await projection(pending)).toMatchObject({ status: "executed" });
         await startProjection(); await quiet();
+      });
+
+      async function projectionBacklog(count: number) {
+        const pending = await request(); await acceptedCard(pending); await savedOutcome(pending, db, "failed");
+        const [template] = await db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.id, pending.interactionId!));
+        const cards = Array.from({ length: count - 1 }, () => ({ ...template, id: randomUUID(), idempotencyKey: randomUUID() }));
+        if (cards.length) await db.insert(issueThreadInteractions).values(cards);
+        const requests = cards.map((card, index) => ({ ...pending,
+          id: `ffffffff-ffff-4fff-afff-${String(index).padStart(12, "0")}`,
+          interactionId: card.id, status: "failed" as const }));
+        if (requests.length) await db.insert(toolActionRequests).values(requests);
+        const cardByRequest = new Map([pending, ...requests].map(row => [row.id, row.interactionId!]));
+        const reflect = async (id: string) => {
+          await db.update(issueThreadInteractions).set({ result: sql`${issueThreadInteractions.result}
+            || ${JSON.stringify({ toolAction: { status: "failed" } })}::jsonb` })
+            .where(eq(issueThreadInteractions.id, cardByRequest.get(id)!));
+        };
+        return { cardByRequest, reflect };
+      }
+
+      it("bounds a projection worker pass and continues its saved backlog", async () => {
+        await projectionBacklog(501);
+        await startProjection();
+        const projected = async () => (await db.select().from(issueThreadInteractions))
+          .filter(card => (card.result as { toolAction?: { status: string } } | null)?.toolAction?.status === "failed").length;
+        expect(await projected()).toBe(500);
+        expect(coordinator!.nextWakeAt()).not.toBeNull();
+        await settle(2000); await quiet();
+        expect(await projected()).toBe(501);
+        expect(await db.select().from(toolCallEvents).where(eq(toolCallEvents.reasonCode, "approved_action_executed"))).toEqual([]);
+      });
+
+      it("clears an abandoned projection cursor after empty reconstruction before the next write", async () => {
+        const backlog = await projectionBacklog(3);
+        const service = toolReviewProjectionService(db, input => backlog.reflect(input.actionRequestId));
+        expect(await service.sweep(fixture.company.id, { maxRows: 1 })).toMatchObject({ scanned: 1, truncated: true });
+        for (const id of backlog.cardByRequest.keys()) await backlog.reflect(id);
+        expect(await service.companies(fixture.company.id)).toEqual([]);
+        const firstId = [...backlog.cardByRequest.keys()].sort()[0]!;
+        await db.update(issueThreadInteractions).set({ result: sql`${issueThreadInteractions.result} - 'toolAction'` })
+          .where(eq(issueThreadInteractions.id, backlog.cardByRequest.get(firstId)!));
+        expect(await service.sweep(fixture.company.id, { maxRows: 500 })).toMatchObject({ scanned: 1, retry: false });
+      });
+
+      it.each(["abort", "drain"] as const)("stops projection between rows on %s and resumes without losing cards", async mode => {
+        const backlog = await projectionBacklog(5), controller = new AbortController();
+        const seen: string[] = []; let admitted = true;
+        const service = toolReviewProjectionService(db, async input => {
+          seen.push(input.actionRequestId); await backlog.reflect(input.actionRequestId);
+          if (seen.length === 1) { if (mode === "abort") controller.abort(); else admitted = false; }
+        });
+        expect(await service.sweep(fixture.company.id, { maxRows: 500, signal: controller.signal, shouldContinue: () => admitted }))
+          .toMatchObject({ scanned: 1, retry: true, truncated: true });
+        expect(seen).toHaveLength(1);
+        admitted = true;
+        expect(await service.sweep(fixture.company.id, { maxRows: 500 })).toMatchObject({ scanned: 4, retry: false });
+        expect(new Set(seen).size).toBe(5);
+      });
+
+      it.each(["unprojectable", "failed"] as const)("continues beyond a full %s page before revisiting it", async mode => {
+        const backlog = await projectionBacklog(501);
+        const blocked = new Set([...backlog.cardByRequest.keys()].sort().slice(0, 500)), seen: string[] = [];
+        const service = toolReviewProjectionService(db, async input => {
+          seen.push(input.actionRequestId);
+          if (blocked.has(input.actionRequestId)) { if (mode === "failed") throw new Error("saved card unavailable"); return; }
+          await backlog.reflect(input.actionRequestId);
+        });
+        const first = service.sweep(fixture.company.id, { maxRows: 500 });
+        if (mode === "failed") await expect(first).rejects.toBeInstanceOf(AggregateError);
+        else expect(await first).toMatchObject({ scanned: 500, retry: true, truncated: true });
+        expect(seen).toHaveLength(500); seen.length = 0;
+        expect(await service.sweep(fixture.company.id, { maxRows: 500 })).toMatchObject({ scanned: 1, retry: true, truncated: false });
+        expect(seen).toHaveLength(1); expect(blocked.has(seen[0]!)).toBe(false);
       });
 
       it("does not starve later pages behind a card that cannot yet reflect its outcome", async () => {

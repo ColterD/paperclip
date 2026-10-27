@@ -157,3 +157,39 @@ server build pass. All 214 cases in the full gateway/projection/startup/scoped-
 deadline selection pass against a separate freshly migrated database, preserving
 notification quiet, company isolation, transaction settlement, and interruption
 behavior. Latest-head CI and automated reviews remain required merge gates.
+
+## Bounded projection and lifecycle interruption
+
+A review found that one company could drain an unlimited backlog in a single
+worker pass. Five real PostgreSQL regressions reproduced 501 rows being consumed
+instead of the 500-row budget, missing abort/drain handling, and the absence of
+continuation past a full page of unprojectable or failed cards.
+
+The worker now gives its existing service a 500-row budget, the coordinator's
+abort signal, and its admission predicate. The service checks admission between
+rows and reads at most 100 candidates per page. It retains the last attempted
+request ID for each unfinished company, including after a failed pass, so a
+poisoned early page cannot hide later healthy cards. A truncated pass schedules
+a one-second continuation; the existing shared per-company fairness and failure
+backoff remain in force. A completed pass that still has an unprojectable card
+retains the existing thirty-second retry. These are real unresolved projections,
+not an unconditional empty-history scan.
+
+Reconstruction clears continuation state for companies that no longer have
+mismatches. A sixth real regression reproduced an abandoned cursor skipping the
+first new earlier card after an empty reconstruction; clearing that cursor makes
+the first new pass repair it immediately. The maps contain no durable truth:
+restart reconstructs from the existing rows, and completed rows stop matching.
+There is no cursor table, independent timer or per-producer recovery wrapper.
+
+Legacy manual/global and scheduler-disabled one-shot repair calls retain their
+complete-sweep behavior unless they request a budget. The normal coordinator
+worker always supplies the bounded options. Cancellation is observed between
+rows and pages; an already issued database query or reflection finishes before
+the service stops. A sweep never replays a provider tool action.
+
+All 220 cases across the full gateway/projection/interruption, startup and scoped
+deadline suites pass, with no skipped cases. The five initial regressions and
+sixth cursor regression failed before their fixes; server types and build pass.
+The earlier 219-case acceptance remains evidence for the preceding revision.
+Fresh integrated-head CI and both automated reviews remain merge gates.
