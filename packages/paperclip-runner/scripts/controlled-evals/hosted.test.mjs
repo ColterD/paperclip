@@ -119,3 +119,52 @@ test('hosted CLI reports safe admission reasons without echoing private paths or
   assert.match(result.stderr, /A required hosted input file is missing/);
   assert.doesNotMatch(result.stderr + result.stdout, /SENSITIVE_SENTINEL/);
 });
+
+
+test('model-readiness policy retains operating holds without requiring vendor cost proofs', async t => {
+  const c = await campaign(t);
+  c.input.policy.overhead.accountingReadiness = 'model_requests';
+  for (const component of c.input.policy.overhead.components) delete component.provisionalBound;
+  delete c.input.policy.capacityBound;
+  const result = c.build();
+  assert.equal(result.manifest.overhead.accountingReadiness, 'model_requests');
+  assert.equal(result.manifest.observability.provisionalBound, undefined);
+  Object.assign(c.f.manifest, result.manifest); await c.f.save();
+  const missing = await summarizeControlledManifest(result.manifest, []);
+  assert.equal(missing.incompleteAttempts, 2);
+  assert.equal(missing.operatingHeldUsd, '0.004000000');
+  Object.assign(c.f.environment, c.environment, { PAPERCLIP_RUNNER_EVAL_EXECUTION_ID: 'execution-0' });
+  assert.equal((await c.f.run(0, () => success())).code, 0);
+  const first = await packControlledAttempt({ manifest: result.manifest, attemptId: 'attempt-0', environment: c.f.environment });
+  Object.assign(c.f.environment, { PAPERCLIP_RUNNER_EVAL_EXECUTION_ID: 'execution-1' });
+  assert.equal((await c.f.run(1, () => success())).code, 0);
+  const second = await packControlledAttempt({ manifest: result.manifest, attemptId: 'attempt-1', environment: c.f.environment });
+  const complete = await summarizeControlledManifest(result.manifest, [first, second]);
+  assert.equal(complete.incompleteAttempts, 0);
+  assert.equal(complete.operatingHeldUsd, '0.004000000');
+  assert.equal(complete.accountingReadiness, 'model_requests');
+  assert.equal(complete.operatingReconciliation, 'pending');
+  delete c.input.policy.overhead.accountingReadiness;
+  assert.throws(() => c.build(), /cost bound|operating bound/);
+});
+
+
+test('model readiness still validates supplied operating and capacity proofs', async t => {
+  const c = await campaign(t), policy = c.input.policy;
+  policy.overhead.accountingReadiness = 'model_requests';
+  for (const component of policy.overhead.components) {
+    component.provisionalBound.configurationSha256 = sha256(canonical({ accountingReadiness: 'model_requests',
+      reference: policy.overhead.reference, runner: policy.overhead.runner, verifiedAt: policy.overhead.verifiedAt,
+      expiresAt: policy.overhead.expiresAt, component: { component: component.component, maxUsd: component.maxUsd, reference: component.reference } }));
+  }
+  policy.capacityBound.configurationSha256 = sha256(canonical(hostedPolicyConfiguration(policy)));
+  assert.equal(c.build().manifest.overhead.accountingReadiness, 'model_requests');
+  const mismatch = structuredClone(c.input); mismatch.policy.capacityBound.evidenceSha256 = '0'.repeat(64);
+  assert.throws(() => prepareHostedManifest(mismatch), /Observability capacity requires its operating bound evidence/);
+  const stale = structuredClone(c.input); stale.policy.capacityBound.configurationSha256 = '0'.repeat(64);
+  assert.throws(() => prepareHostedManifest(stale), /Reviewed cost bound configuration changed/);
+  const absent = structuredClone(c.input);
+  for (const component of absent.policy.overhead.components) delete component.provisionalBound;
+  absent.policy.capacityBound.configurationSha256 = sha256(canonical(hostedPolicyConfiguration(absent.policy)));
+  assert.throws(() => prepareHostedManifest(absent), /Observability capacity requires its operating bound evidence/);
+});

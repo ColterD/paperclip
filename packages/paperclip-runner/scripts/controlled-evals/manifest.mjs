@@ -49,7 +49,7 @@ export function validateManifest(value, now = Date.now(), { admission = true } =
   validateHostedIdentity(value);
   const overhead = costRuntime.validateOperatingOverhead(value.overhead, value.maxUsd);
   if (admission && Date.parse(value.overhead.verifiedAt) > now || Date.parse(value.overhead.expiresAt) <= deadline
-      || value.overhead.components.some(component => !component.provisionalBound)) throw new Error('Controller requires current full-lifecycle operating bounds');
+      || value.overhead.accountingReadiness !== 'model_requests' && value.overhead.components.some(component => !component.provisionalBound)) throw new Error('Controller requires current full-lifecycle operating bounds');
   if (!Array.isArray(value.models) || !value.models.length || value.models.length > 16
       || !Array.isArray(value.attempts) || !value.attempts.length || value.attempts.length > 1000) throw new Error('Invalid controlled campaign selection');
   const prices = new Map();
@@ -141,7 +141,13 @@ function validateObservability(manifest) {
       || Object.keys(policy.capture).length !== 4 || Object.values(policy.capture).some(value => typeof value !== 'boolean')
       || canonical(Object.keys(policy.nativeLimits ?? {}).sort()) !== canonical(Object.keys(costRuntime.EVAL_OTLP_LIMITS).sort())
       || Object.entries(costRuntime.EVAL_OTLP_LIMITS).some(([key, max]) => !Number.isSafeInteger(policy.nativeLimits[key]) || policy.nativeLimits[key] < 1 || policy.nativeLimits[key] > max)) throw new Error('Invalid controller observability allocation');
+  if (manifest.overhead.accountingReadiness === 'model_requests' && policy.provisionalBound === undefined) return;
   const operating = manifest.overhead.components.find(item => item.component === 'observability');
   if (!operating || policy.provisionalBound?.evidenceSha256 !== operating.provisionalBound?.evidenceSha256) throw new Error('Observability capacity requires its operating bound evidence');
   costRuntime.reservationBound('operating_allowance', policy.provisionalBound, observabilityBoundConfiguration(manifest));
+}
+
+
+export function modelReadinessDefect(manifest, snapshot) {
+  return manifest.overhead.accountingReadiness === 'model_requests' && (!snapshot.requests.length || snapshot.unknownRequests > 0);
 }

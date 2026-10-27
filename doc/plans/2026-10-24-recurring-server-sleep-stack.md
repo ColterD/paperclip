@@ -12,13 +12,13 @@ Do not mark an item done from a timer removal or a green check alone.
 
 | ID | Original checklist duty | Required slices / disposition | PR / evidence |
 | --- | --- | --- | --- |
-| 01 | Custom-image setup expiry | Session writes, existing expiry, startup/retry/drain | [#17443](https://github.com/paperclipai/paperclip/pull/17443), all checks passed, Greptile 5/5 at `36844a458b` |
+| 01 | Custom-image setup expiry | Session writes, existing expiry, startup/retry/drain | [#17443](https://github.com/paperclipai/paperclip/pull/17443), merged after CI and passing reviews |
 | 02 | Remaining chat maintenance | Provider runtime discovery; voice reconciliation; milestones; wake notices; interaction continuations; terminal confirmations; GitHub recovery; Teams maintenance, separately by owner | Pending |
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
 | 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Pending |
 | 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Pending |
 | 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | Pending |
-| 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Secret proposals: [#17446](https://github.com/paperclipai/paperclip/pull/17446), checks passed at `d41590ac0e`; gateway credentials: [#17450](https://github.com/paperclipai/paperclip/pull/17450), all checks passed, Greptile 5/5 at `c5c53fc43f`; pending tool-review expiry: [#17453](https://github.com/paperclipai/paperclip/pull/17453), all checks passed, Greptile 5/5 at `ce6a260a83`; approved recovery: [#17454](https://github.com/paperclipai/paperclip/pull/17454), all checks passed, Greptile 5/5 at `7a1cf03e62`; interrupted claims: [#17458](https://github.com/paperclipai/paperclip/pull/17458), all checks passed, Greptile 5/5 at `85003a7ac4`; projection implemented, PR pending |
+| 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Secret proposals: [#17446](https://github.com/paperclipai/paperclip/pull/17446), merged; gateway credentials: [#17450](https://github.com/paperclipai/paperclip/pull/17450), merged; pending tool-review expiry: [#17453](https://github.com/paperclipai/paperclip/pull/17453), merged; approved recovery: [#17454](https://github.com/paperclipai/paperclip/pull/17454), historical argument identity repair verified and awaiting fresh CI/review; other review duties pending |
 | 08 | GitHub connection events and continuity | Event discovery/replay and credential continuity separately | Pending |
 | 09 | Merged-PR confirmations | Candidate writes, webhook activation where supported, outstanding-candidate fallback | Pending |
 | 10 | External-object refresh | Configuration changes, refresh deadlines, source events | Pending |
@@ -243,7 +243,7 @@ producers and request settlements use the existing review notification boundary.
 A partial index supports the first deadline. The aggregate tick now excludes
 interrupted claims; projection repair remains its own pending slice.
 
-Thirteen new worker cases and the existing service/startup selection pass
+Sixteen new worker cases and the existing service/startup selection pass
 (136 total on the combined head). Workspace typecheck/build and migration checks
 pass. Two fake-clock fixture ordering failures were corrected to wait for real
 settlement while advancing retry time. The combined tool-access run had one
