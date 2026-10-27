@@ -237,3 +237,19 @@ build pass with the updated Runner vendor. The earlier full 141-case selection
 remains evidence at its stated revision. Parent migration history is an exact
 prefix and five generated snapshots remain. Fresh head CI and both automated
 reviews are required after this parent integration.
+
+
+## Landed expiry integration and CI interruption
+
+Expiry-only creation notification from `aa03d2c4c2` is integrated. All 143 cases
+in the complete recovery, decision, expiry, startup and scoped-deadline suites
+pass, including single/bundle creation without continuation signals. The normal
+merge of landed expiry `3421366903` also preserves all 21 independently merged
+master files. The same 143 cases pass after that reconciliation.
+
+The previous candidate `f54a707d74` had both reviews at 5/5, but CI run
+40597921712 failed because server shard 6 was interrupted. Its test step was
+cancelled and orphan cleanup ran; no failing test assertion or suite summary was
+reported. The workflow eventually completed with that shard and its dependent
+verify gate failed. It was not retried or presented as passing. The necessary
+expiry parent repair creates a new candidate with fresh CI and reviews required.

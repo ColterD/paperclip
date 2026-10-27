@@ -16,7 +16,7 @@ Do not mark an item done from a timer removal or a green check alone.
 | 02 | Remaining chat maintenance | Provider runtime discovery; voice reconciliation; milestones; wake notices; interaction continuations; terminal confirmations; GitHub recovery; Teams maintenance, separately by owner | Pending |
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
 | 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Retention pending; archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged after exact-head 5/5 reviews and passing current CI |
-| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479), effects [#17482](https://github.com/paperclipai/paperclip/pull/17482), and targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) await current-head review/CI gates |
+| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479) merged; effects [#17482](https://github.com/paperclipai/paperclip/pull/17482), and targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) await current-head review/CI gates |
 
 
 | 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | Pending |
@@ -622,3 +622,11 @@ The recovery index is regenerated as `0390_salty_killraven.sql`; parent history
 is unchanged. The initial overlap assertion failure and its earlier-queue deadline
 explanation are recorded in the behavior audit. Seven slices are merged; this
 PR and the remaining stack still require fresh current-head CI and both reviews.
+
+
+Slice 10 merged after exact-head Greptile/Ponytail 5/5 and all 58 check contexts
+passed or were neutral/skipped: `aa03d2c4c2` → `3421366903`. Slice 11 normally
+integrates that landed parent and all 21 independent master files. All 143 cases
+in its five complete suites pass. Its preceding CI shard interruption remains
+recorded in the owning effect-recovery audit; it is not a passing receipt. Fresh
+CI/reviews are required on the reconciled head.
