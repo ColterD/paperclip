@@ -87,9 +87,23 @@ vi.mock("./installation-integrity.js", () => ({ verifyNativeAcpxInstallation: vi
 
 describe("Copilot build-owned installation", () => {
   it("admits the current profile with environment launch preparation", () => {
-    expect(QUALIFIED_ACPX_PROFILES.copilot.agentProfileVersion).toBe(65);
+    expect(QUALIFIED_ACPX_PROFILES.copilot.agentProfileVersion).toBe(66);
     expect(QUALIFIED_ACPX_PROFILES.copilot.qualificationStatus).toBeUndefined();
-    expect(QUALIFIED_ACPX_PROFILES.copilot.commandDigest).toBe("sha256:277894e850e07e6801cc24299c237513f58b41eb93c24f751d984fc4ddb04c47");
+    expect(QUALIFIED_ACPX_PROFILES.copilot.commandDigest).toBe("sha256:0cddc219af25b741b7138f38faa7514dd5ee3427b1d3168e8a4bfbe5180983e8");
+  });
+
+  it("retains v65 history while binding the shared native Grok effort transport in v66", async () => {
+    const prior = JSON.parse(readFileSync(new URL("../../../test/fixtures/copilot-profile-v65-identity.json", import.meta.url), "utf8"));
+    const current = JSON.parse(readFileSync(new URL("../../../test/fixtures/copilot-profile-v66-identity.json", import.meta.url), "utf8"));
+    expect(Object.keys(current.declaration).filter(key => current.declaration[key] !== prior.declaration[key]).sort()).toEqual([
+      "agentProfileVersion", "harnessSessionContractSourceSha256", "nativeBackendSourceSha256", "nativeExecutionSourceSha256",
+      "nativeInstructionsSourceSha256", "profileCompatibilitySourceSha256", "providerLaunchSourceSha256", "runtimeAdapterSourceSha256",
+      "runtimeHostSourceSha256", "runtimeRequestBridgeSourceSha256", "runtimeSandboxSourceSha256", "semanticDirectDriverSourceSha256", "semanticSchemaBundleSourceSha256",
+      "semanticSidecarProtocolSourceSha256", "semanticSidecarSourceSha256",
+    ]);
+    expect(isSupportedAcpxProfileVersion("copilot", 65)).toBe(true);
+    await expect(verifyCopilotInstallation({ ...QUALIFIED_ACPX_PROFILES.copilot,
+      agentProfileVersion: 65, commandDigest: prior.commandDigest })).rejects.toThrow("exact pinned");
   });
 
   it("preserves published v64 while binding exhausted reconnect cancellation in v65", async () => {

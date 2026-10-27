@@ -1,6 +1,6 @@
 {
-  "id": "8edee62d-dbde-4e07-9088-6232bb553e77",
-  "prevId": "7a73ad83-a55f-4636-8915-cad6dc25f66a",
+  "id": "de27fdf8-430a-443a-9502-725f92c48892",
+  "prevId": "da3229b5-4eab-4d8b-ba6b-d756e6c42430",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -22110,6 +22110,34 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "decision_archive_notification_outbox_delivery_idx": {
+          "name": "decision_archive_notification_outbox_delivery_idx",
+          "columns": [
+            {
+              "expression": "last_attempt_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "first"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"decision_archive_notification_outbox\".\"status\" = 'pending'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -24026,44 +24054,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "decisions_open_expiry_idx": {
-          "name": "decisions_open_expiry_idx",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"decisions\".\"status\" = 'open'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "decisions_pending_continuation_idx": {
-          "name": "decisions_pending_continuation_idx",
-          "columns": [
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"decisions\".\"continuation_policy\" = 'wake_origin_agent' AND \"decisions\".\"metadata\" ->> 'continuationPending' = 'true' AND (\"decisions\".\"status\" IN ('expired', 'cancelled') OR (\"decisions\".\"status\" = 'decided' AND \"decisions\".\"execution_status\" IN ('succeeded', 'partial', 'failed')))",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -52937,6 +52927,27 @@
           "columns": [
             {
               "expression": "invocation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tool_action_requests_company_interaction_idx": {
+          "name": "tool_action_requests_company_interaction_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "interaction_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
