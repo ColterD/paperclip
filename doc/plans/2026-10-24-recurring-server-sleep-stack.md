@@ -601,3 +601,10 @@ The continuation parent #17478 now has passing checks and Greptile 5/5 at
 agent-history route test. All 92 route tests passed locally; one failed-job retry
 was requested. This evidence does not yet establish green TTL CI. The full
 original inventory remains in scope; no stack PR has been merged.
+
+Current slice 11 parent integration passes all 141 effect/decision/expiry/startup/
+deadline cases, server types/build, generated snapshot drift and migration replay.
+The recovery index is regenerated as `0390_salty_killraven.sql`; parent history
+is unchanged. The initial overlap assertion failure and its earlier-queue deadline
+explanation are recorded in the behavior audit. Seven slices are merged; this
+PR and the remaining stack still require fresh current-head CI and both reviews.
