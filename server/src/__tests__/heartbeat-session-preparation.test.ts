@@ -112,7 +112,11 @@ describePostgres("heartbeat session preparation through adapter dispatch", () =>
     } finally { await db.delete(plugins).where(eq(plugins.id, storage.pluginId)); }
   });
 
-  it("keeps inherited repository policy stable through binding and retains the provider on policy changes", async () => {
+  it.each([
+    null,
+    { mode: "isolated_workspace" },
+    { workspaceStrategy: { type: "git_worktree", branchTemplate: "work" } },
+  ])("keeps inherited repository policy stable through binding with settings %j and retains the provider on policy changes", async (settings) => {
     const f = await seed();
     const storage = await createPluginWorkspaceFixture(db, f.companyId);
     const [plugin] = await db.select().from(plugins).where(eq(plugins.id, storage.pluginId));
@@ -121,7 +125,7 @@ describePostgres("heartbeat session preparation through adapter dispatch", () =>
     } } }).where(eq(plugins.id, storage.pluginId));
     await db.update(projects).set({ executionWorkspacePolicy: null }).where(eq(projects.id, storage.input.projectId));
     await db.update(issues).set({ projectId: storage.input.projectId, projectWorkspaceId: storage.input.projectWorkspaceId,
-      executionWorkspaceSettings: { workspaceStrategy: { type: "git_worktree", branchTemplate: "work" } },
+      executionWorkspaceSettings: settings,
     }).where(eq(issues.id, f.issueId));
     await instanceSettingsService(db).updateExperimental({ enableIsolatedWorkspaces: true, enableIsolatedWorkspacesByDefault: true });
     const cwd = await mkdtemp(join(tmpdir(), "session-provider-fixture-"));
@@ -140,6 +144,8 @@ describePostgres("heartbeat session preparation through adapter dispatch", () =>
       const first = await execute(f);
       const [bound] = await db.select().from(issues).where(eq(issues.id, f.issueId));
       expect(bound.executionWorkspaceId).toEqual(expect.any(String));
+      expect(bound.executionWorkspacePreference).toBe("reuse_existing");
+      expect(bound.executionWorkspaceSettings).toEqual({ ...settings, mode: "isolated_workspace" });
       const [workspace] = await db.select().from(executionWorkspaces).where(eq(executionWorkspaces.id, bound.executionWorkspaceId!));
       expect([...captured.values()].filter(input => input.context.issueId === f.issueId)).toHaveLength(1);
       expect(workspace).toMatchObject({ providerType: "plugin", strategyType: "git_worktree" });

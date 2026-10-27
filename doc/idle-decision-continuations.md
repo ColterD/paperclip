@@ -182,3 +182,12 @@ Temporarily removing the effect-flight guard made this test fail (two reads);
 restoring the production guard passes. The mutation was restored before commit.
 This verifies actual cross-pool contention without a timing delay or a new
 production-only test hook.
+
+
+Archive #17475 is merged. Normal reconciliation with its exact squash
+`5785090ff1` preserves all 31 independent incoming master files, including
+Runner controller-authority recovery. All 97 decision/startup/deadline cases and
+server types/build pass after that integration. The Runner vendor rebuilt from
+its changed inputs. The preceding full five-suite selection passed 293 cases;
+the continuation owner's production behavior is unchanged by reconciliation.
+Fresh exact-head reviews and CI remain required on the master-target candidate.
