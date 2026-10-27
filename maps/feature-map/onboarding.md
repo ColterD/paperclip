@@ -132,6 +132,16 @@ parent, and recovery stopped the completion callback before a provider turn.
 The failed report remains evidence; the revised source still needs live proof.
 Local cases and automatic selection remain unchanged.
 
+First-task task creation enforces proposal acceptance at the shared server
+boundary. Verify that native `create_task` and both REST creation endpoints reject
+an authenticated onboarding run before its latest proposal has a saved human
+acceptance, including an explicit standalone parent. Then accept a confirmation
+or the current plan revision and verify creation succeeds. Opening answers,
+agent-only acceptance, stale plans and newer pending/rejected proposals must not
+admit new work. [Admission controls](../../server/src/__tests__/onboarding-first-task-admission.test.ts)
+exercise native and REST calls against disposable PostgreSQL; live model and
+Cloud onboarding remain separate evidence.
+
 For accepted file-producing work, verify exactly one self-assigned child with a
 self-contained description. The onboarding run must yield through the existing
 dependency/block disposition so the child's own execution can publish its file.
