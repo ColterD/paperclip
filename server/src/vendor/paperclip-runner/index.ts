@@ -38,6 +38,7 @@ export type {
   NativeExecutionInputV6,
   NativeExecutionInputV8,
   NativeExecutionInputV9,
+  NativeExecutionInputV10,
   MuseBindingSnapshot,
   DotBindingSnapshot,
   ExternalProviderPort,
@@ -147,6 +148,7 @@ export const parsePaperclipQuestionResponse =
   runner.parsePaperclipQuestionResponse;
 export const resolveQualifiedAcpxProfile = runner.resolveQualifiedAcpxProfile;
 export const resolveClaudeEffort = runner.resolveClaudeEffort;
+export const resolveGrokEffort = runner.resolveGrokEffort;
 export const QUALIFIED_ACPX_PROFILES = runner.QUALIFIED_ACPX_PROFILES;
 export const QUALIFIED_ACPX_VERSION = runner.QUALIFIED_ACPX_VERSION;
 export const CURSOR_DISTRIBUTION_PINS = runner.CURSOR_DISTRIBUTION_PINS;
@@ -179,3 +181,5 @@ export const configuredEnvironmentProjection = runner.configuredEnvironmentProje
 export const configuredEnvironment = runner.configuredEnvironment;
 
 export const probeNativeRunnerEnvironment = runner.probeNativeRunnerEnvironment;
+
+export const resolveGrokDisableWebSearch = runner.resolveGrokDisableWebSearch;

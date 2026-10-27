@@ -61,6 +61,7 @@ export {
 } from "./drivers/acpx/codex-acpx-driver.js";
 export * from "./drivers/acpx/sidecar-protocol.js";
 export { resolveClaudeEffort } from "./drivers/acpx/claude-effort.js";
+export { resolveGrokEffort } from "./drivers/acpx/grok-effort.js";
 export * from "./drivers/runner-tool-bridge.js";
 export {
   createRunnerdCodexTransport,
@@ -103,3 +104,5 @@ export type { RunnerExecutionDriver } from "./control-plane/runner-execution-dri
 
 export { bindRunnerLaunchResources, createRunnerProviderLaunch, runnerProviderLaunchRequirements, runnerLaunchRequirementsDigest, validatePreparedRunnerLaunch } from "./live/runner-provider-launch.js";
 export type { RunnerProviderLaunchRequirements, RunnerProviderLaunchEnvironment, PreparedRunnerProviderLaunch, RunnerLaunchPreparer } from "./live/runner-provider-launch.js";
+
+export { resolveGrokDisableWebSearch } from "./drivers/acpx/grok-web-search.js";
