@@ -62,6 +62,6 @@ export function registerApprovalRetentionWork(
   canRun: () => boolean,
 ) {
   return registerDeadlineWork(coordinator, DELIVERY_QUEUES.approvalRetention, {
-    run: signal => service.sweep(new Date(), signal), next: service.next, canRun, retryMs: 30_000,
+    run: signal => service.sweep(new Date(), signal), next: service.next, canRun, retryMs: 30_000, notificationCoalesceMs: 30_000,
   });
 }
