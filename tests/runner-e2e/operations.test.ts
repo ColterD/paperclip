@@ -164,16 +164,21 @@ it.each([
   cell.id,
   "feedback-persistence.runner-codex.local.complaint-and-suggestion",
   "feedback-persistence.runner-acpx-claude.local.complaint-and-suggestion",
+  "core-compatibility.runner-acpx-claude.daytona.message-marker",
 ])("routes %s through a shared connection without ambient provider bindings", async executionId => {
   const selected = runnerMatrix.find(execution => execution.id === executionId)!;
   const anthropic = selected.profile.credential === "ANTHROPIC_API_KEY";
-  const admitted = manifest(); admitted.executionIds = [selected.id];
+  const remote = selected.environment.id === "daytona";
+  const origin = remote ? "https://fixture.trycloudflare.com" : "http://127.0.0.1:43123";
+  const admitted = manifest();
+  if (remote) admitted.remoteGateway = "cloudflare"; admitted.executionIds = [selected.id];
   admitted.models[0]!.provider = anthropic ? "anthropic" : "openai";
   admitted.models[0]!.price.provider = admitted.models[0]!.provider;
   admitted.models[0]!.price.model = selected.profile.model;
   if (anthropic) Object.assign(admitted.models[0]!.price, { cacheWrite5mUsdPerMillion: "2", cacheWrite1hUsdPerMillion: "2" });
   expect(validateEvalOperationsManifest(admitted, [selected], 0)).toBe(admitted);
-  vi.stubEnv("PAPERCLIP_E2E_GATEWAY_BASE_URL", "http://127.0.0.1:43123");
+  vi.stubEnv("PAPERCLIP_E2E_GATEWAY_BASE_URL", origin);
+  if (remote) vi.stubEnv("PAPERCLIP_E2E_REMOTE_GATEWAY_ORIGIN", origin);
   vi.stubEnv("PAPERCLIP_E2E_GATEWAY_TOKEN", "ephemeral-fixture-token");
   const id = "11111111-1111-4111-8111-111111111111", grantId = "22222222-2222-4222-8222-222222222222";
   let connection: unknown, agent: Record<string, any> | undefined, company: Record<string, unknown> | undefined;
@@ -181,12 +186,15 @@ it.each([
     async get() { return [{ id, driver: "local" }]; },
     async postSensitive(url: string, body: unknown) { if (url.endsWith("/ai-connections")) { connection = body; return { connectionId: id, grantId }; } return { id }; },
     async post(url: string, body: Record<string, unknown>) { if (url.endsWith("/agents")) agent = body; if (url === "/api/companies") company = body; return { id, name: "fixture" }; },
+    async delete() {},
   } as unknown as RunnerApi;
-  const fixtures = await setupLiveFixtures({ api, execution: selected, executionNonce: "fixture", workspacePath: "/tmp/fixture", credentials: { [selected.profile.credential]: "ephemeral-fixture-token" } });
+  const fixtures = await setupLiveFixtures({ api, execution: selected, executionNonce: "fixture", workspacePath: "/tmp/fixture", credentials: { [selected.profile.credential]: "ephemeral-fixture-token", ...(remote ? { DAYTONA_API_KEY: "fixture-daytona" } : {}) },
+    ...(remote ? { daytonaImage: `ghcr.io/paperclip/image@sha256:${"a".repeat(64)}` } : {}) });
   await fixtures.teardown();
-  expect(createAiConnectionSchema.parse(connection)).toMatchObject({ ownership: "shared", apiKey: "ephemeral-fixture-token", routing: { kind: "gateway", protocol: anthropic ? "messages" : "responses", baseUrl: `http://127.0.0.1:43123${anthropic ? "" : "/v1"}`, auth: "bearer" } });
+  expect(createAiConnectionSchema.parse(connection)).toMatchObject({ ownership: "shared", apiKey: "ephemeral-fixture-token", routing: { kind: "gateway", protocol: anthropic ? "messages" : "responses", baseUrl: `${origin}${anthropic ? "" : "/v1"}`, auth: "bearer" } });
   expect(aiConnectionBindingSchema.parse(agent!.runtimeConfig.aiConnection)).toEqual({ provider: anthropic ? "anthropic" : "openai", method: "api_key", mode: "shared", connectionId: id, grantId });
   expect(agent!.adapterConfig.env).toBeUndefined();
+  expect(agent!.adapterConfig.helloProbeTimeoutSec).toBe(remote ? 300 : undefined);
   if (selected.suite.id === "feedback-persistence") {
     expect(company!.budgetMonthlyCents).toBe(1_000);
     expect(agent!.budgetMonthlyCents).toBe(1_000);

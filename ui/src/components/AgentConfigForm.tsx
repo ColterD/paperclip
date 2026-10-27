@@ -1592,7 +1592,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
             <div className="min-w-0 flex-1 space-y-1">
               <p className="text-sm font-medium">Upgrade to Paperclip Runner</p>
               <p className="text-sm text-muted-foreground">
-                Keep {harnessType === "claude_local" ? "Claude" : "Codex"}, your model, account, and compatible settings.
+                Keep your harness, model, account, and compatible settings.
                 New sessions start fresh; past runs stay available.
               </p>
               {canQualifyRunnerUpgrade && runnerAvailability?.defaultRunner !== "paperclip" ? (
