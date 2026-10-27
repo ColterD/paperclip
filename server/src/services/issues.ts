@@ -1170,7 +1170,13 @@ export async function resolveChatOriginPublicationBindings(
       .select({
         agentId: heartbeatRuns.agentId,
         responsibleUserId: heartbeatRuns.responsibleUserId,
-        contextSnapshot: heartbeatRuns.contextSnapshot,
+        contextSnapshot: sql<Record<string, unknown> | null>`
+          case when jsonb_typeof(${heartbeatRuns.contextSnapshot}) = 'object' then
+            (select coalesce(jsonb_object_agg(entry.key, entry.value), '{}'::jsonb)
+             from jsonb_each(${heartbeatRuns.contextSnapshot}) as entry
+             where entry.key in ('issueId', 'taskId', 'wakeCommentIds', 'wakeCommentId',
+                                 'commentId', 'source', 'sourceRunId', 'interactionId', 'endpointId'))
+          else ${heartbeatRuns.contextSnapshot} end`,
       })
       .from(heartbeatRuns)
       .where(

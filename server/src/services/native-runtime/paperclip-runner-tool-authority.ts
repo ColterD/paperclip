@@ -458,7 +458,7 @@ export class PaperclipRunnerToolAuthority {
     }
     if (RUNTIME_CONNECTION_TOOL_DEFINITIONS.some((tool) => tool.name === call.tool)) {
       await this.#boundContext();
-      const { run } = await captureRunIdentity(this.db, this.binding);
+      const { run } = await captureRunIdentity(this.db, this.binding, { readScope: "identity" });
       if (!run.responsibleUserId) throw forbidden("This task needs a responsible user before requesting a connection");
       const claims = {
         sub: this.binding.agentId, company_id: this.binding.companyId,
@@ -794,9 +794,9 @@ export class PaperclipRunnerToolAuthority {
       }
       case "report_progress": return this.#reportProgress(input);
       case "request_human_input": return this.#requestHumanInput(input,
-        (await captureRunIdentity(this.db, this.binding)).context?.id ?? null);
+        (await captureRunIdentity(this.db, this.binding, { readScope: "identity" })).context?.id ?? null);
       case "create_task": return this.#createTask(input,
-        (await captureRunIdentity(this.db, this.binding)).context?.id ?? null);
+        (await captureRunIdentity(this.db, this.binding, { readScope: "identity" })).context?.id ?? null);
       case "reassign_task": return this.#reassignTask(input);
       case "set_task_title": return this.#setTaskTitle(input);
       case "set_task_monitor": return this.#setTaskMonitor(input);

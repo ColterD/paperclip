@@ -49,6 +49,18 @@ and leaves all existing cases passive. Source identities are not grants.
 
 ### Task query performance
 
+Native session resume selects its newest progress barrier within the existing
+32-run task/session window in one SQL snapshot. Only the chosen checkpoint source
+returns its saved native input, checkpoint, tool fingerprint, wake envelope, and
+canonical task brief. Unused bootstrap candidates do not return full context or
+profiles. Wrong runtime, nonterminal status, process identity, provider events,
+invalid but non-null checkpoints, and future checkpoint barriers retain their
+existing selection rules. Stored run payloads and history reads stay complete.
+Run the synthetic PostgreSQL comparison with a pinned pre-change revision:
+`pnpm --filter @paperclipai/server exec tsx ../scripts/benchmark-native-session-resume-reads.ts --baseline-ref=<commit>`.
+An optional `PAPERCLIP_SESSION_RESUME_BENCHMARK_DATABASE_URL` must name a dedicated
+test database ending in `_test`; otherwise the harness starts disposable PostgreSQL.
+
 Agent request authentication uses a compact run-identity read. It omits saved
 execution payloads, results, and log excerpts from the query response. The read
 still locks the task before the run and reconciles pending steering from durable
