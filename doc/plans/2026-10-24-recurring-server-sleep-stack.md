@@ -16,7 +16,7 @@ Do not mark an item done from a timer removal or a green check alone.
 | 02 | Remaining chat maintenance | Provider runtime discovery; voice reconciliation; milestones; wake notices; interaction continuations; terminal confirmations; GitHub recovery; Teams maintenance, separately by owner | Pending |
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
 | 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Retention pending; archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged after exact-head 5/5 reviews and passing current CI |
-| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478), expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479), and effects [#17482](https://github.com/paperclipai/paperclip/pull/17482) await fresh current-head gates; target invalidation review repair remains in progress |
+| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479), effects [#17482](https://github.com/paperclipai/paperclip/pull/17482), and targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) await current-head review/CI gates |
 
 
 | 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | Pending |
@@ -523,6 +523,12 @@ deadline cases, server types/build and migration replay. The parent continuation
 coalescing and deterministic cross-pool contention regression remain intact.
 The archive parent now targets master after projection #17468 merged. Fresh
 current-head reviews and CI remain required in dependency order.
+
+Slice 10 creation signal follow-up: single and bundle creation now notify expiry
+only through the central owner. Terminal updates still signal continuation. Both
+real regressions failed before repair; all 117 current expiry/decision/startup/
+deadline cases, server types and build pass. Fresh CI/reviews remain required.
+
 
 
 

@@ -7,8 +7,9 @@ recovery, and retention remain separate duties.
 
 ## Producers and transaction ownership
 
-Creation and bundle creation notify before the decision insert in their existing
-transaction. Existing decision updates share `notifyDecisionChange`, which now
+Creation and bundle creation call `notifyDecisionCreated` before the decision
+insert in their existing transaction. It signals expiry only: an open row cannot
+owe continuation delivery yet. Existing decision updates share `notifyDecisionChange`, which now
 signals expiry as well as continuation delivery. Cancellation, dismissal, and
 execution claims therefore remove obsolete expiry deadlines. All production
 inserts and updates are in the decision owner; acknowledgement only changes
@@ -156,3 +157,21 @@ scoped-deadline cases and server types/build pass with the rebuilt Runner vendor
 The previous full 130-case selection remains evidence at its stated revision.
 No migration SQL changed, and five generated snapshots remain. Fresh head CI
 and reviews are required after this parent integration.
+
+
+## Creation notification review repair
+
+Single and bundle creation previously notified continuation recovery even though
+the inserted decision was open. Two real producer regressions failed before
+repair because continuation received intent and settlement. Creation now uses the
+existing central notification file's expiry-only `notifyDecisionCreated` helper.
+Update and terminal transitions keep `notifyDecisionChange`, including the normal
+continuation signal. No optional flags, per-route bookkeeping or new table is
+needed. Both regressions verify the exact future expiry, no early wake, and a
+subsequent cancellation that still signals and delivers continuation normally.
+
+All 117 current expiry/decision/startup/deadline cases pass, including 20 expiry
+cases. Server types/build pass. The preceding f7 candidate's identical-tree
+merge proof remains history; this subsequent creation-signal repair changes
+runtime behavior and has its own acceptance above. Fresh current-head CI and
+both reviews are required.

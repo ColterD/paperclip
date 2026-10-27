@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { activityLog, agents, companies, createDb, decisionBundles, decisionEffectExecutions, decisions,
+import { activityLog, agents, companies, createDb, subscribeDatabaseWork, decisionBundles, decisionEffectExecutions, decisions,
   decisionTargetIssues, heartbeatRuns, issues } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { resolveExternalTestDatabaseUrl } from "./helpers/external-test-database.js";
@@ -10,6 +10,7 @@ import { registerDecisionExpiryWork } from "../services/decision-expiry-work.js"
 import { registerDecisionContinuationWork } from "../services/decision-continuation-work.js";
 import { createDeliveryWorkCoordinator } from "../services/delivery-work-coordinator.js";
 import { idleWorkSnapshot } from "../services/task-admission.js";
+import { DELIVERY_QUEUES } from "../services/delivery-work-notifications.js";
 
 const externalUrl = resolveExternalTestDatabaseUrl("PAPERCLIP_DECISION_EXPIRY_TEST_DATABASE_URL");
 const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTestSupport();
@@ -94,6 +95,28 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
     expect(reads).not.toHaveBeenCalled(); reads.mockRestore(); expect(wake).not.toHaveBeenCalled();
     await expired(row.id); await quiet(); expect(wake).toHaveBeenCalledTimes(1);
     expect(await db.select().from(activityLog).where(eq(activityLog.action, "decision.expired"))).toHaveLength(1);
+  });
+
+  it.each(["single", "bundle"] as const)("arms expiry without waking continuation recovery for %s creation", async mode => {
+    await start(); await quiet();
+    const events: string[] = [];
+    const unsubscribe = subscribeDatabaseWork(db, DELIVERY_QUEUES.decisionContinuation, event => { events.push(event); });
+    try {
+      const deadline = new Date(Date.now() + 120_000);
+      const row = mode === "single" ? await create(deadline) : (await service().createBundle({
+        companyId, actor: actor(), agentId, runId, title: "Bundle", summary: "Summary", decisions: [input(deadline)],
+      })).decisions[0];
+      expect(events).toEqual([]);
+      await vi.waitFor(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+        expect(coordinator!.nextWakeAt()).toBe(deadline.getTime());
+      });
+      expect(wake).not.toHaveBeenCalled();
+      await service().cancel(row.id, { actorType: "agent", actorId: agentId });
+      await quiet();
+      expect(events).toEqual(["intent", "settled"]);
+      expect(wake).toHaveBeenCalledTimes(1);
+    } finally { unsubscribe(); }
   });
 
   it("honors the configured expiry batch size", async () => {
