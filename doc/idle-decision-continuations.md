@@ -149,3 +149,36 @@ first combined command used the wrong retention DB variable and skipped those
 typecheck and build pass. The historical nine embedded-only work-signal skips
 above are not reclassified as executed by this selection. Fresh CI and reviews
 remain required.
+
+
+## Bounded notification-driven recovery
+
+Security review identified that sequential decision writes could each start an
+instance-wide continuation scan. A real-producer regression reproduced six
+sweeps for six sequential cancellations. The worker now uses the existing
+`notificationCoalesceMs: 30_000` option. The first wake after a quiet window still
+reconciles promptly, and subsequent notifications in that window share its end
+deadline. Foreground continuation delivery is unchanged and immediate. Recovery
+can wait up to thirty seconds, matching the prior maintenance cadence. This
+bounds global scan frequency; it does not make queries company-scoped or add a
+cross-process notification contract.
+
+The regression verifies one scan during repeated real create/cancel writes,
+retention and eventual delivery of a later pending row, and no recurring SQL
+after settlement. Its first green attempt wrongly expected zero active work
+while the coalesced request was pending. The existing intent hold correctly
+remains until reconciliation; the test now checks that hold's actual terminal
+boundary through the existing quiet assertion. No production hold was removed.
+All 293 integrated cases across decisions, archive, gateway/projection, startup
+and scoped-deadline suites pass without skips; server types/build pass. Fresh
+security review, Greptile, Ponytail and exact-head CI remain merge gates.
+
+
+The archive contention regression no longer waits a fixed 100 ms. A dedicated
+single-connection contender signals its decision read; two FIFO SQL round trips
+then establish that it reached shared execution while the first archive remains
+held. The test requires one contender decision read and one archive execution.
+Temporarily removing the effect-flight guard made this test fail (two reads);
+restoring the production guard passes. The mutation was restored before commit.
+This verifies actual cross-pool contention without a timing delay or a new
+production-only test hook.

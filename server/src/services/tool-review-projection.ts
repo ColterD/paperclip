@@ -44,6 +44,7 @@ export function toolReviewProjectionService(db: Db, reflect: (input: {
       const maxRows = options.maxRows ?? Infinity;
       const scope = companyId ?? "*";
       let cursor = maxRows === Infinity ? undefined : continuations.get(scope);
+      const resumed = cursor !== undefined;
       let scanned = 0, completed = false;
       const canContinue = () => !options.signal?.aborted && (options.shouldContinue?.() ?? true);
       const failures: unknown[] = [];
@@ -70,7 +71,7 @@ export function toolReviewProjectionService(db: Db, reflect: (input: {
       }
       if (failures.length) throw new AggregateError(failures, "Tool review projection repair failed");
       return { scanned, truncated: !completed,
-        retry: !completed || (await candidates(companyId).limit(1)).length > 0 };
+        retry: !completed || ((scanned > 0 || resumed) && (await candidates(companyId).limit(1)).length > 0) };
     },
   };
 }

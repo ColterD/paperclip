@@ -261,6 +261,16 @@ status, known adapters, and allowlisted outcome/check/server codes. The case
 report renders these fields explicitly; older results without the receipt remain
 valid. This diagnostic does not change the journey grade or qualify a live run.
 
+When the canonical first-task journey fails `onboarding_work_before_acceptance`,
+`productJourney.onboardingPreAcceptance` retains the failed checkpoint and every
+observed guard violation: unexpected task set, existing attachment, non-planning
+document, or first task already Done. The closed version-1 receipt contains only
+counts, whether the first task matches the canonical parent, and closed first-task
+and canonical-parent statuses. Reports validate and display these observations;
+they do not infer a product cause. Only the failing boundary is retained, without
+task/document IDs, document keys, text, or bodies. Historical results may omit the
+receipt. The original error, failed grade, and dependent blocked outcomes remain.
+
 ## Live provider connection journeys
 
 See [PROVIDER-CONNECTIONS.md](PROVIDER-CONNECTIONS.md) for the explicit-only

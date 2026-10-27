@@ -329,6 +329,15 @@ exactly. Current-head CI and Greptile/Ponytail review remain required. Earlier
 case counts above describe the broader selections at their original revisions.
 
 
+Slice 07 follow-up: scoped hints avoid redundant discovery, empty sweeps avoid a
+second candidate read, and unresolved-card retries back off to five minutes.
+Fresh writes reactivate promptly and settlement is quiet. The full affected
+gateway/startup/deadline selection passes 222 cases; server types/build pass.
+The initial invalid one-wake-per-approval assertion and corrected isolated-hint
+measurement are retained in the behavior document. Current-head CI/reviews remain
+required before this slice can merge.
+
+
 ## Slice 08: decision-archive notification delivery
 
 Projection repair is #17468. Its bounded master integration passes local
@@ -466,6 +475,15 @@ cases, server types/build, fresh migration apply/replay and generated snapshot
 drift. Own unmerged index is regenerated as `0388_ambitious_micromax.sql`; parent
 386/387 migrations and journal entries are preserved. The initial skipped retention
 command and corrected 15-case run are recorded in the behavior document.
+
+Slice 09 security follow-up: sequential real decision writes reproduced six
+global continuation scans. Existing thirty-second notification coalescing now
+bounds those scans while preserving immediate foreground wakes and durable
+pending recovery. All 293 integrated decision/archive/gateway/startup/deadline
+cases and server types/build pass. The incorrect expectation of zero active
+work during the coalescing window is recorded in the behavior document; the
+intent hold remains until reconciliation. Fresh security/CI/reviews required.
+
 
 
 ## Slice 10: decision TTL expiry
