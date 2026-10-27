@@ -1,6 +1,6 @@
 {
-  "id": "0488b37c-31ec-4b18-8459-0978c773324e",
-  "prevId": "cc122e9a-5a3b-4d88-be59-4726009468e8",
+  "id": "e080fc1b-af8e-4012-8ce5-3b5065b65143",
+  "prevId": "f38ffbf3-c0ce-435e-aad8-9e5afa6b9417",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5721,28 +5721,6 @@
         }
       },
       "indexes": {
-        "approvals_pending_retention_idx": {
-          "name": "approvals_pending_retention_idx",
-          "columns": [
-            {
-              "expression": "updated_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"approvals\".\"status\" = 'pending'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "approvals_company_status_type_idx": {
           "name": "approvals_company_status_type_idx",
           "columns": [
@@ -22129,6 +22107,34 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "decision_archive_notification_outbox_delivery_idx": {
+          "name": "decision_archive_notification_outbox_delivery_idx",
+          "columns": [
+            {
+              "expression": "last_attempt_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "first"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"decision_archive_notification_outbox\".\"status\" = 'pending'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -41917,28 +41923,6 @@
         }
       },
       "indexes": {
-        "join_requests_pending_retention_idx": {
-          "name": "join_requests_pending_retention_idx",
-          "columns": [
-            {
-              "expression": "updated_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"join_requests\".\"status\" = 'pending_approval'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "join_requests_invite_unique_idx": {
           "name": "join_requests_invite_unique_idx",
           "columns": [
@@ -53025,6 +53009,27 @@
           "columns": [
             {
               "expression": "invocation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tool_action_requests_company_interaction_idx": {
+          "name": "tool_action_requests_company_interaction_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "interaction_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

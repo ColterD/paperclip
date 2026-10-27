@@ -49,7 +49,7 @@ start execution. This preference does not change the org chart or permissions.
 
 ### Agent Execution
 
-Existing Claude and Codex agents can upgrade from the legacy runner on their
+Existing Claude, Codex, and Grok Build agents can upgrade from the legacy runner on their
 Harness / Runtime page when Paperclip Runner is the qualified default for their
 environment. One action saves pending edits and translates compatible settings
 while keeping the harness, selected model, account bindings, instructions, and

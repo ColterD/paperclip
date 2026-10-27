@@ -1,21 +1,12 @@
-import { executionIssueCondition } from "./issue-visibility.js";
+import { approvalExecutionIssueCondition } from "./approval-visibility.js";
 import { and, asc, eq, isNull, lte, or, sql, type SQL } from "drizzle-orm";
-import { approvals, companies, decisionRetention, issues, type Db } from "@paperclipai/db";
+import { approvals, companies, decisionRetention, type Db } from "@paperclipai/db";
 import { decisionRetentionService, DEFAULT_DECISION_ARCHIVE_DAYS } from "./decision-retention.js";
 import type { createDeliveryWorkCoordinator } from "./delivery-work-coordinator.js";
 import { registerDeadlineWork } from "./deadline-work.js";
 import { DELIVERY_QUEUES } from "./delivery-work-notifications.js";
 
 const archiveDelay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
-const eligibleLink = sql`not exists (
-  select 1 from issue_approvals linked where linked.company_id = ${approvals.companyId}
-    and linked.approval_id = ${approvals.id}
-    and linked.issue_id = (select first_link.issue_id from issue_approvals first_link
-      where first_link.company_id = ${approvals.companyId} and first_link.approval_id = ${approvals.id}
-      order by first_link.issue_id limit 1)
-    and not exists (select 1 from ${issues} where ${issues.id} = linked.issue_id
-      and ${issues.companyId} = ${approvals.companyId} and ${executionIssueCondition()})
-)`;
 
 export function approvalRetentionService(db: Db) {
   let cursor: { at: string; id: string } | undefined;
@@ -24,7 +15,7 @@ export function approvalRetentionService(db: Db) {
       .innerJoin(companies, eq(companies.id, approvals.companyId))
       .leftJoin(decisionRetention, and(eq(decisionRetention.companyId, approvals.companyId),
         eq(decisionRetention.sourceKind, "approval"), sql`${decisionRetention.sourceId} = ${approvals.id}::text`))
-      .where(and(sql`${approvals.status} = 'pending'`, eq(companies.status, "active"), eligibleLink,
+      .where(and(sql`${approvals.status} = 'pending'`, eq(companies.status, "active"), approvalExecutionIssueCondition(),
         or(isNull(decisionRetention.id), eq(decisionRetention.keep, false)), isNull(decisionRetention.archivedAt), condition))
       .orderBy(asc(approvals.updatedAt), asc(approvals.id));
   }
@@ -71,6 +62,6 @@ export function registerApprovalRetentionWork(
   canRun: () => boolean,
 ) {
   return registerDeadlineWork(coordinator, DELIVERY_QUEUES.approvalRetention, {
-    run: signal => service.sweep(new Date(), signal), next: service.next, canRun, retryMs: 30_000,
+    run: signal => service.sweep(new Date(), signal), next: service.next, canRun, retryMs: 30_000, notificationCoalesceMs: 30_000,
   });
 }

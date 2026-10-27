@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { activityLog, agents, approvals, chatConversations, chatEndpoints, companies, createDb, decisionArchiveNotificationOutbox, decisionRetention, issueApprovals, issues, toolApplications, toolConnections, type Db } from "@paperclipai/db";
+import { activityLog, agents, approvals, chatConversations, chatEndpoints, companies, createDb, subscribeDatabaseWork, decisionArchiveNotificationOutbox, decisionRetention, issueApprovals, issues, toolApplications, toolConnections, type Db } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { resolveExternalTestDatabaseUrl } from "./helpers/external-test-database.js";
 import { approvalRecords } from "../services/approvals.js";
@@ -12,6 +12,7 @@ import { issueApprovalService } from "../services/issue-approvals.js";
 import { companyService } from "../services/companies.js";
 import { issueService } from "../services/issues.js";
 import { createDeliveryWorkCoordinator } from "../services/delivery-work-coordinator.js";
+import { DELIVERY_QUEUES } from "../services/delivery-work-notifications.js";
 import { idleWorkSnapshot } from "../services/task-admission.js";
 
 const externalUrl = resolveExternalTestDatabaseUrl("PAPERCLIP_APPROVAL_RETENTION_TEST_DATABASE_URL");
@@ -101,6 +102,49 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
     expect((await db.select().from(approvals).where(eq(approvals.id, row.id)))[0].status).toBe("pending");
   });
 
+  it.each(["approved", "rejected", "cancelled"] as const)("wakes parked tool reviews only on terminal %s transition", async outcome => {
+    const queues = [DELIVERY_QUEUES.toolReviewExpiry, DELIVERY_QUEUES.toolReviewRecovery,
+      DELIVERY_QUEUES.toolReviewInterruption, DELIVERY_QUEUES.toolReviewProjection];
+    const events = queues.map(() => [] as string[]);
+    const subscriptions = queues.map((queue, index) => subscribeDatabaseWork(db, queue, event => { events[index].push(event); }));
+    try {
+      const row = await create(), target = await issue();
+      for (let pass = 0; pass < 3; pass++) {
+        await issueApprovalService(db).link(target.id, row.id);
+        await issueApprovalService(db).unlink(target.id, row.id);
+      }
+      await approvalRecords(db).requestRevision(row.id, "board-user");
+      await approvalRecords(db).resubmit(row.id);
+      expect(events).toEqual(queues.map(() => []));
+      if (outcome === "cancelled") await approvalRecords(db).cancel(row.id, "cancelled by user");
+      else await approvalRecords(db).resolveApproval(row.id, outcome, "board-user", null);
+      expect(events).toEqual(queues.map(() => ["intent", "settled"]));
+    } finally { for (const unsubscribe of subscriptions) unsubscribe(); }
+  });
+
+  it("bounds aggregate retention reads to one reconciliation per thirty seconds of sequential tenant writes", async () => {
+    const [otherCompany] = await db.insert(companies).values({ name: "Other tenant", issuePrefix: `B${companyId.slice(0, 6)}` }).returning();
+    const other = await approvalRecords(db).create(otherCompany.id, { type: "request_board_approval", payload: {} });
+    const service = await start(); await settle();
+    const sweep = vi.spyOn(service, "sweep"), reads = vi.spyOn(db, "select");
+    await create();
+    await vi.waitFor(() => expect(sweep).toHaveBeenCalledTimes(1));
+    await sweep.mock.results[0].value;
+    await vi.waitFor(() => expect(idleWorkSnapshot().active).toBe(0));
+    const afterFirst = reads.mock.calls.length;
+    expect(afterFirst).toBe(2);
+    for (let pass = 0; pass < 3; pass++) {
+      await create();
+      await vi.advanceTimersByTimeAsync(100);
+    }
+    await vi.advanceTimersByTimeAsync(29_000);
+    expect(reads).toHaveBeenCalledTimes(afterFirst);
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.waitFor(() => expect(reads).toHaveBeenCalledTimes(afterFirst + 2));
+    reads.mockRestore();
+    expect((await db.select().from(approvals).where(eq(approvals.id, other.id)))[0].status).toBe("pending");
+  });
+
   it("recovers old unseen approvals on startup and leaves completed history quiet", async () => {
     const due = await create(old()), completed = await create(old());
     await approvalRecords(db).resolveApproval(completed.id, "approved", "board-user", null);
@@ -114,6 +158,31 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
     const resubmitted = await approvalRecords(db).resubmit(row.id); await settle();
     expect(coordinator!.nextWakeAt()).toBe(resubmitted.updatedAt.getTime() + delay);
     await approvalRecords(db).cancel(row.id); await quiet();
+  });
+
+  it.each(["keep", "archive", "revive"] as const)("applies %s to an unseen young approval without a feed read", async action => {
+    const row = await create();
+    expect(await state(row.id)).toBeNull();
+    const retention = decisionRetentionService(db);
+    const result = action === "keep" ? await retention.setKeep({ ...mutation(row.id), keep: true })
+      : action === "archive" ? await retention.archive(mutation(row.id)) : await retention.revive(mutation(row.id));
+    expect(result).toMatchObject({ sourceKind: "approval", sourceId: row.id, sourceActivityAt: row.updatedAt, keep: action === "keep" });
+    expect(result.archivedAt).toEqual(action === "archive" ? expect.any(Date) : null);
+    expect(await state(row.id)).toMatchObject({ id: result.id, keep: action === "keep" });
+  });
+
+  it("rolls back on-demand materialization when the manual keep write fails", async () => {
+    const row = await create();
+    await db.execute(sql`create function approval_retention_fail() returns trigger language plpgsql as $$ begin
+      if NEW.keep then raise exception 'manual keep unavailable'; end if; return NEW; end $$`);
+    await db.execute(sql`create trigger approval_retention_fail before update on decision_retention for each row execute function approval_retention_fail()`);
+    await expect(decisionRetentionService(db).setKeep({ ...mutation(row.id), keep: true }))
+      .rejects.toMatchObject({ cause: { message: "manual keep unavailable" } });
+    expect(await state(row.id)).toBeNull();
+    expect(await db.select().from(activityLog).where(eq(activityLog.action, "decision_retention.keep_updated"))).toHaveLength(0);
+    await db.execute(sql`drop trigger approval_retention_fail on decision_retention`);
+    expect(await decisionRetentionService(db).setKeep({ ...mutation(row.id), keep: true })).toMatchObject({ keep: true });
+    expect(await db.select().from(activityLog).where(eq(activityLog.action, "decision_retention.keep_updated"))).toHaveLength(1);
   });
 
   it("honors keep and wakes when an old approval is unkept", async () => {
@@ -284,6 +353,16 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
     await start(); await quiet();
     await issueApprovalService(db).unlink(first.id, row.id);
     await archived(row.id); await quiet();
+  });
+
+  it("keeps a visible first linked issue eligible when a later link is hidden", async () => {
+    const row = await create(old()), one = await issue(), two = await issue();
+    const [first, second] = [one, two].sort((a, b) => a.id.localeCompare(b.id));
+    await db.update(issues).set({ hiddenAt: new Date() }).where(eq(issues.id, second.id));
+    await issueApprovalService(db).linkManyForApproval(row.id, [second.id, first.id]);
+    expect((await attentionService(db).list(companyId, { all: true, allowUnscopedAll: true })).items
+      .some(item => item.subject.id === row.id)).toBe(true);
+    await start(); await archived(row.id); await quiet();
   });
 
   it("joins an admitted sweep on shutdown and skips subsequent deadline queries", async () => {
