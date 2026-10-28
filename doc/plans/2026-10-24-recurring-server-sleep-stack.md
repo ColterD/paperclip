@@ -1257,6 +1257,16 @@ repaired with the existing session company. The final parent merge adds only
 two documents. Fresh final-head CI/reviews and the parent's merge remain required.
 
 
+Slice 16 now integrates landed join retention `8406047b4e` and targets master.
+Its own diff is still the original 25 seeding paths; all database metadata matches
+master. Continuing-arrival fairness, post-success backoff reset and outage backoff
+through an empty rollover have real failed-then-passing regressions. External
+seeding, queue and watchdog tests now migrate their own empty databases: all 55
+cases passed on three fresh fixtures, and the final added guard passes all 56
+cases on those migrated fixtures. Server types/build pass at `7948136ef8`.
+The earlier cleanup-expectation failure and 522-case integration evidence retain
+their own revisions. Fresh exact-head reviews and CI are the remaining merge gate.
+
 Slice 17 current review repair: a retained plugin completion can no longer wait
 indefinitely for a PostgreSQL statement/row lock. The transaction-local timeout
 preserves the saved result for retry and allows existing shutdown cleanup to

@@ -7,7 +7,7 @@ import {
   agents,
   approvals,
   companies,
-  createDb,
+  createDb, applyPendingMigrations,
   documents,
   heartbeatRuns,
   issueComments,
@@ -45,7 +45,8 @@ describeEmbeddedPostgres("task watchdog scheduler", () => {
   let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
 
   beforeAll(async () => {
-    if (!externalUrl) tempDb = await startEmbeddedPostgresTestDatabase("paperclip-task-watchdogs-scheduler-");
+    if (externalUrl) await applyPendingMigrations(externalUrl);
+    else tempDb = await startEmbeddedPostgresTestDatabase("paperclip-task-watchdogs-scheduler-");
     db = createDb(externalUrl ?? tempDb!.connectionString);
   }, 20_000);
 

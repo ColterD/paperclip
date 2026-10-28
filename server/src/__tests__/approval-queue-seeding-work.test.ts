@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { activityLog, approvals, companies, createDb, decisionQueueItems, decisionQueues, decisionRetention, decisionTriageEvents, issueApprovals, issues, issueWorkProducts, subscribeDatabaseWork, type Db } from "@paperclipai/db";
+import { activityLog, approvals, companies, createDb, applyPendingMigrations, decisionQueueItems, decisionQueues, decisionRetention, decisionTriageEvents, issueApprovals, issues, issueWorkProducts, subscribeDatabaseWork, type Db } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { resolveExternalTestDatabaseUrl } from "./helpers/external-test-database.js";
 import { approvalRecords } from "../services/approvals.js";
@@ -26,7 +26,8 @@ const support = external ? { supported: true } : await getEmbeddedPostgresTestSu
   let draining = false;
   const errors: unknown[] = [];
   beforeAll(async () => {
-    if (!external) temporary = await startEmbeddedPostgresTestDatabase("approval-queue-");
+    if (external) await applyPendingMigrations(external);
+    else temporary = await startEmbeddedPostgresTestDatabase("approval-queue-");
     db = createDb(external ?? temporary!.connectionString, { maxConnections: 6, idleTimeoutSeconds: 0, maxLifetimeSeconds: 0 });
   }, 30_000);
   beforeEach(async () => {
@@ -310,6 +311,57 @@ const support = external ? { supported: true } : await getEmbeddedPostgresTestSu
     expect(await service.next()).toBeNull();
   });
 
+  it("resets consecutive failure backoff after a successful batch with remaining debt", async () => {
+    const target = await issue(); await product(target.id);
+    const rows = await db.insert(approvals).values(Array.from({ length: 101 }, () => ({
+      companyId, type: "request_board_approval", payload: {},
+    }))).returning();
+    await db.insert(issueApprovals).values(rows.map(row => ({ companyId, issueId: target.id, approvalId: row.id })));
+    const service = approvalQueueSeedingService(db);
+    await db.execute(sql`create function approval_queue_fail() returns trigger language plpgsql as $$ begin raise exception 'projection unavailable'; end $$`);
+    const fail = () => db.execute(sql`create trigger approval_queue_fail before insert on decision_queue_items for each row execute function approval_queue_fail()`);
+    await fail();
+    for (let attempt = 0; attempt < 7; attempt++) {
+      await expect(service.sweep()).rejects.toThrow();
+      await vi.advanceTimersByTimeAsync(60_000);
+    }
+    await db.execute(sql`drop trigger approval_queue_fail on decision_queue_items`);
+    await service.sweep();
+    expect(await memberships()).toHaveLength(1); expect(service.next()).not.toBeNull();
+    await fail();
+    const at = Date.now(); const clock = vi.spyOn(Date, "now").mockReturnValue(at);
+    try {
+      await expect(service.sweep()).rejects.toThrow("Approval queue seeding failed");
+      expect(service.next()).toBe(at + 1000);
+    } finally { clock.mockRestore(); }
+    await db.execute(sql`drop trigger approval_queue_fail on decision_queue_items`);
+    await vi.advanceTimersByTimeAsync(60_000); await service.sweep();
+    expect(service.next()).not.toBeNull(); await service.sweep();
+    expect(await memberships()).toHaveLength(101); expect(service.next()).toBeNull();
+  });
+
+  it("preserves outage backoff across an empty cursor rollover", async () => {
+    const target = await issue(); await product(target.id);
+    const rows = await db.insert(approvals).values(Array.from({ length: 100 }, () => ({
+      companyId, type: "request_board_approval", payload: {},
+    }))).returning();
+    await db.insert(issueApprovals).values(rows.map(row => ({ companyId, issueId: target.id, approvalId: row.id })));
+    const service = approvalQueueSeedingService(db);
+    await db.execute(sql`create function approval_queue_fail() returns trigger language plpgsql as $$ begin raise exception 'projection unavailable'; end $$`);
+    await db.execute(sql`create trigger approval_queue_fail before insert on decision_queue_items for each row execute function approval_queue_fail()`);
+    await expect(service.sweep()).rejects.toThrow("Approval queue seeding failed");
+    await vi.advanceTimersByTimeAsync(1000); await service.sweep();
+    expect(await memberships()).toEqual([]); expect(service.next()).not.toBeNull();
+    const at = Date.now(); const clock = vi.spyOn(Date, "now").mockReturnValue(at);
+    try {
+      await expect(service.sweep()).rejects.toThrow("Approval queue seeding failed");
+      expect(service.next()).toBe(at + 2000);
+    } finally { clock.mockRestore(); }
+    await db.execute(sql`drop trigger approval_queue_fail on decision_queue_items`);
+    await vi.advanceTimersByTimeAsync(60_000); await service.sweep(); await service.sweep();
+    expect(await memberships()).toHaveLength(100); expect(service.next()).toBeNull();
+  });
+
   it("keeps backoff SQL-quiet while another company's committed work proceeds", async () => {
     const service = approvalQueueSeedingService(db), sweep = service.sweep;
     let running = false;
@@ -375,6 +427,31 @@ const support = external ? { supported: true } : await getEmbeddedPostgresTestSu
     await service.sweep(); expect((await memberships()).map(row => row.sourceId)).toEqual([last]);
     await db.execute(sql`drop trigger approval_queue_fail on decision_queue_items`);
     await service.sweep(); expect(await memberships()).toHaveLength(101); expect(await service.next()).toBeNull();
+  });
+
+  it("retries a failed membership while new matching pages keep arriving", async () => {
+    const target = await issue(); await product(target.id);
+    const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+    const append = async (start: number, count: number) => {
+      const rows = await db.insert(approvals).values(Array.from({ length: count }, (_, offset) => ({
+        id: id(start + offset), companyId, type: "request_board_approval", payload: {},
+      }))).returning();
+      await db.insert(issueApprovals).values(rows.map(row => ({ companyId, issueId: target.id, approvalId: row.id })));
+    };
+    const service = approvalQueueSeedingService(db); await service.sweep();
+    await append(1, 101); service.request(new Set([companyId]));
+    await db.execute(sql`create function approval_queue_fail() returns trigger language plpgsql as $$ begin
+      if new.source_id = TG_ARGV[0] then raise exception 'projection unavailable'; end if; return new; end $$`);
+    await db.execute(sql`create trigger approval_queue_fail before insert on decision_queue_items for each row execute function approval_queue_fail(${sql.raw("'" + id(1) + "'")})`);
+    await expect(service.sweep()).rejects.toThrow("Failed query");
+    await append(102, 100); service.request(new Set([companyId]));
+    await vi.advanceTimersByTimeAsync(1000); await service.sweep();
+    await append(202, 100); service.request(new Set([companyId]));
+    await db.execute(sql`drop trigger approval_queue_fail on decision_queue_items`);
+    await service.sweep();
+    expect((await memberships()).some(row => row.sourceId === id(1))).toBe(true);
+    for (let pass = 0; pass < 4 && service.next() !== null; pass++) await service.sweep();
+    expect(await memberships()).toHaveLength(301); expect(service.next()).toBeNull();
   });
 
   it("rechecks the approval after a concurrent resolution commits", async () => {

@@ -9,7 +9,7 @@ import {
   agents,
   approvals,
   companies,
-  createDb,
+  createDb, applyPendingMigrations,
   decisionQueueItems,
   decisionQueues,
   decisionTriage,
@@ -42,7 +42,8 @@ describeEmbeddedPostgres("decision queue routes", () => {
   let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
 
   beforeAll(async () => {
-    if (!external) tempDb = await startEmbeddedPostgresTestDatabase("paperclip-decision-queues-");
+    if (external) await applyPendingMigrations(external);
+    else tempDb = await startEmbeddedPostgresTestDatabase("paperclip-decision-queues-");
     db = createDb(external ?? tempDb!.connectionString);
   }, 30_000);
 
