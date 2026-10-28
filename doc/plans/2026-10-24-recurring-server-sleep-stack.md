@@ -1275,3 +1275,11 @@ passed. All 34 scheduler cases and 247 cases in eleven complete lifecycle and
 existing-worker suites pass at `36be0bd733`, plus server types/build. This is not
 a guarantee about every network or shutdown operation. Final parent integration,
 fresh remote review and all CI gates remain required.
+
+
+Plugin slice 17 integrates final seeding parent `51668b8240`. Its original
+seventeen-file boundary is preserved, and every plugin/runtime/shutdown source
+is unchanged from the 247-case proof. All 63 cases across complete plugin,
+seeding and scoped-deadline suites now pass at `56ce7c1d2a`, plus server
+types/build. Hold its final publication for the parent's accepted merge, then
+reconcile the landed master parent and require fresh exact-head review/CI.

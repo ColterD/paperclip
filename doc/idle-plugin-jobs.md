@@ -183,3 +183,13 @@ retention, approval seeding and decision-expiry suites pass, along with server
 typecheck and production build, at `36be0bd733`. Earlier failures and their stated
 revisions remain above. Fresh final-parent integration and exact-head remote
 checks/reviews remain required.
+
+
+Final parent `51668b8240` changes only approval-seeding behavior/tests and two
+documents relative to the 247-case candidate. All plugin implementation, plugin
+tests, shared deadline/coordinator and shutdown sources remain identical to that
+run. After normal integration, all 63 cases in complete plugin-scheduler,
+approval-seeding and scoped-deadline suites pass at `56ce7c1d2a`, plus server
+typecheck/build. The original seventeen-file plugin boundary and exact parent
+migration metadata are preserved. Publication waits for the parent to land so
+final master reconciliation and remote checks can run together.
