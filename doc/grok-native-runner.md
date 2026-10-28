@@ -77,6 +77,8 @@ Grok profile matches. Historical profile versions remain decodable, but they do
 not authorize a fresh launch. After changing a bound source, advance the profile
 and run `node packages/paperclip-runner/scripts/grok-profile-identity.mjs`.
 The normal `check:acpx-profiles` build gate verifies this source identity.
+The generator refuses to replace an existing versioned identity with different
+source. Advance the version and retain the previous version's recovery decoder.
 
 Provision Grok Build 1.0.13 at
 `/opt/paperclip/providers/grok/1.0.13/grok` in the selected execution environment.

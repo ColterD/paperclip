@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -49,7 +49,7 @@ export function grokProfileIdentity(root = repositoryRoot) {
   return { commandDigest: sha(stampedLauncher(root, sourceDigest)), sourceDigest, declaration };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const identity = grokProfileIdentity();
   const manifestPath = resolve(packageRoot, "acpx-profiles.json");
   const fixturePath = resolve(packageRoot, `test/fixtures/grok-profile-v${GROK_PROFILE_VERSION}-identity.json`);
@@ -60,6 +60,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     assert.equal(manifest.profiles.grok.agentProfileVersion, GROK_PROFILE_VERSION);
     assert.equal(readFileSync(resolve(repositoryRoot, launcherPath), "utf8"), stampedLauncher(repositoryRoot, identity.sourceDigest));
   } else {
+    if (existsSync(fixturePath) && canonical(JSON.parse(readFileSync(fixturePath, "utf8"))) !== canonical(identity)) {
+      throw new Error(`Grok profile ${GROK_PROFILE_VERSION} identity is immutable; advance GROK_PROFILE_VERSION before changing bound source`);
+    }
     writeFileSync(resolve(repositoryRoot, launcherPath), stampedLauncher(repositoryRoot, identity.sourceDigest));
     manifest.profiles.grok.commandDigest = identity.commandDigest;
     manifest.profiles.grok.agentProfileVersion = GROK_PROFILE_VERSION;

@@ -52,6 +52,15 @@ describe("historical ACPX profile decoding", () => {
       expect(isSupportedAcpxProfileVersion("copilot", identity.declaration.agentProfileVersion), file).toBe(true);
     }
   });
+  it("decodes every retained Grok identity so saved runs can reach recovery", () => {
+    const root = new URL("../../../test/fixtures/", import.meta.url);
+    const files = readdirSync(root).filter(name => /^grok-profile-v\d+-identity\.json$/u.test(name));
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      const identity = JSON.parse(readFileSync(new URL(file, root), "utf8"));
+      expect(isSupportedAcpxProfileVersion("grok", identity.declaration.agentProfileVersion), file).toBe(true);
+    }
+  });
   it.each([0, 1.5, "11", null, undefined, NaN])("rejects invalid revisions: %s", version => {
     expect(isSupportedAcpxProfileVersion("cursor", version)).toBe(false);
   });
