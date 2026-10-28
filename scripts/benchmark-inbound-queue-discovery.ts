@@ -40,16 +40,25 @@ try {
   const [{ version }] = await db.$client.unsafe("select version()");
   const settings = await db.$client.unsafe("select name, setting from pg_settings where name in ('shared_buffers', 'work_mem', 'jit', 'jit_above_cost', 'jit_inline_above_cost', 'random_page_cost', 'max_connections') order by name");
   const results = [];
+  const malformedReadyControls = [];
   let baselineExceedsWorkBudget = false;
   const budgetFailures: string[] = [];
-  for (const fixture of [{ name: "small", history: 20, payloadBytes: 0 }, { name: "retained-history", history: 1500, payloadBytes: 32 * 1024 }]) {
+  for (const fixture of [{ name: "small", history: 20, payloadBytes: 0 }, { name: "retained-history", history: 1500, payloadBytes: 32 * 1024 }].filter(value => !process.argv.includes("--retained-only") || value.name === "retained-history")) {
     const f = await seedInboundDiscovery(db, fixture.history, fixture.payloadBytes);
     await db.$client.unsafe("begin");
     if (process.argv.includes("--jit-off")) await db.$client.unsafe("set local jit = off");
     try {
+      const pairs = [];
       for (const kind of ["deadline", "head", "ready"] as const) {
         const before = await captureInboundQuery(db, f, kind, oldQueue.createChatConversationDeliveryQueue, oldService.chatChannelService);
         const after = await captureInboundQuery(db, f, kind);
+        pairs.push({ kind, before, after });
+      }
+      if (process.argv.includes("--wait-for-slot")) {
+        process.stderr.write(`READY ${fixture.name}: database seeded, all real queries captured; press Enter to time\n`);
+        await new Promise<void>(resolve => { process.stdin.once("data", () => { process.stdin.pause(); resolve(); }); process.stdin.resume(); });
+      }
+      for (const { kind, before, after } of pairs) {
         const samples = { before: [] as number[], after: [] as number[] };
         const expected = await runQuery(db, before);
         assert.deepEqual(await runQuery(db, after), expected, `${fixture.name}/${kind}: complete positional output differs`);
@@ -79,6 +88,29 @@ try {
         results.push({ fixture, kind, equalPositionalRows: expected.length, before, after, samples, beforeMedianMs: median(samples.before), afterMedianMs: median(samples.after), actionLoops, plans });
         process.stderr.write(`${fixture.name}/${kind}: ${median(samples.before).toFixed(2)} -> ${median(samples.after).toFixed(2)} ms; action scans ${actionLoops.before} -> ${actionLoops.after}\n`);
       }
+      if (fixture.name === "small") {
+        const unrelated = await f.delivery({ state: "filtered" });
+        const other = await seedInboundDiscovery(db, 0);
+        for (const input of [
+          { scope: "same-company-unrelated-delivery", companyId: f.companyId, endpointId: f.endpointId, deliveryId: unrelated.id },
+          { scope: "other-company", companyId: other.companyId, endpointId: other.endpointId, deliveryId: other.pending.id },
+          { scope: "null-delivery", companyId: f.companyId, endpointId: f.endpointId, deliveryId: null },
+        ]) {
+          const action = await f.action(input.deliveryId, { companyId: input.companyId, endpointId: input.endpointId, result: { retryAt: "invalid timestamp" } });
+          const before = await captureInboundQuery(db, f, "ready", oldQueue.createChatConversationDeliveryQueue, oldService.chatChannelService, f.pending.id);
+          const after = await captureInboundQuery(db, f, "ready", undefined, undefined, f.pending.id);
+          const outcome = async (query: typeof before) => {
+            await db!.$client.unsafe("savepoint malformed_probe");
+            try { return { rows: await runQuery(db!, query) }; }
+            catch (error) { await db!.$client.unsafe("rollback to savepoint malformed_probe"); return { error: (error as { code?: string }).code }; }
+            finally { await db!.$client.unsafe("release savepoint malformed_probe"); }
+          };
+          const oldResult = await outcome(before), newResult = await outcome(after);
+          assert.deepEqual(newResult, oldResult, `${input.scope}: malformed ready selection outcome differs`);
+          malformedReadyControls.push({ scope: input.scope, before: oldResult, after: newResult });
+          await db.$client.unsafe("delete from chat_actions where id = $1::uuid", [action.id]);
+        }
+      }
     } finally { await db.$client.unsafe("rollback"); }
     await db.$client.unsafe("delete from chat_endpoints where id = $1::uuid", [f.endpointId]);
   }
@@ -88,7 +120,7 @@ try {
   }));
   console.log(JSON.stringify({ baselineRevision, treatmentRevision: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), runtimeSources,
     version, settings, jitOffControl: process.argv.includes("--jit-off"), baselineExceedsWorkBudget, budgetFailures,
-    warmups: 2, timedSamplesPerArm: 5, setupAndProofMs: performance.now() - started, results }, null, 2));
+    malformedReadyControls, warmups: 2, timedSamplesPerArm: 5, setupAndProofMs: performance.now() - started, results }, null, 2));
   if (process.argv.includes("--require-work-budget")) assert.deepEqual(budgetFailures, [], "Fixture work budget failed");
 } finally {
   try { await db?.$client.end({ timeout: 0 }); await database?.cleanup(); await fs.rm(dir, { recursive: true, force: true }); }

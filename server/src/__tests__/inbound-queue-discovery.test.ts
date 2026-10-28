@@ -29,7 +29,7 @@ describe("inbound queue discovery", () => {
     expect((await pendingIds(db, pendingInboundWakeupCondition(), f.companyId)).map(row => row.id).sort()).toEqual([f.pending.id, duplicate.id].sort());
   });
 
-  it("does not parse an unrelated malformed retry timestamp in a selected ready-head probe", async () => {
+  it("preserves scoped ready-head probes with unrelated malformed retry data", async () => {
     const f = await seedInboundDiscovery(db);
     const other = await seedInboundDiscovery(db, 0);
     const unrelated = await f.delivery({ state: "filtered" });
@@ -42,7 +42,7 @@ describe("inbound queue discovery", () => {
       const [action] = await db.insert(chatActions).values({ ...input, kind: "inbound_wakeup", providerActionId: randomUUID(), status: "issued", result: { retryAt: "invalid timestamp" } }).returning();
       try {
         expect(await db.select({ id: chatDeliveries.id }).from(chatDeliveries).where(and(eq(chatDeliveries.id, f.pending.id), oracle))).toEqual([]);
-        expect(await runQuery(db, await captureInboundQuery(db, f, "ready", undefined, undefined, f.pending.id))).toEqual([]);
+        expect(await db.select({ id: chatDeliveries.id }).from(chatDeliveries).where(and(eq(chatDeliveries.id, f.pending.id), pendingInboundWakeupCondition(true)))).toEqual([]);
       } finally { await db.delete(chatActions).where(eq(chatActions.id, action!.id)); }
     }
   });

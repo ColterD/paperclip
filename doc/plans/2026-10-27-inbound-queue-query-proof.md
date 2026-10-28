@@ -19,8 +19,8 @@ processed history before rejecting rows with no pending action.
 The treatment uses a set of `(company_id, endpoint_id, delivery_id)` for pending
 ownership. Null delivery IDs cannot match and are excluded, so the predicate
 still returns a boolean. Duplicate actions do not multiply delivery rows.
-Ready-only probes retain their original scoped `EXISTS`: a selected head must
-not parse an unrelated action's malformed retry timestamp.
+Ready-only probes retain their original scoped `EXISTS`. This keeps the
+readiness and retry parsing boundary outside this optimization.
 
 ## Reproduction
 
@@ -56,7 +56,10 @@ remain real. No persistent database is used.
 
 ## Results
 
-Final matched measurements and verification are recorded below before handoff.
+Matched pre-fix baseline: `09ad9adce2cf4742944353a3707a2f908e9bb35e`.
+An earlier baseline at `96727b3` had identical ledger and conversation-queue
+sources. Master changed an unrelated health notification import in the service
+entry-point, so the final comparison was repeated from the newer pre-fix base.
 The ordinary-ready selector is an unchanged control. The head query still reads
 its existing JSON ordering/filter fields; do not claim it reduces physical
 history scans. Local SQL timings do not prove a hosted request speedup.
@@ -67,8 +70,8 @@ history scans. Local SQL timings do not prove a hosted request speedup.
 | --- | --- | --- | --- |
 | Can the real source run locally? | Cached offline install, isolated build | 27.7 s install; 141 s build log span | Reuse the built checkout for each narrow attempt |
 | Does the initial scan hypothesis hold? | Captured queries and real PG plans | 4.0 s inside the instrumented baseline harness, plus module loading | Reject repeated physical scans as the cause |
-| Does the set improve the actual selectors? | Red work budget, alternating pair, JIT-off control | 28.36 s for all three processes, including module and DB setup | JIT explains ready/head gain; deadline also saves JSON reads |
-| Does a selective ready probe remain scoped? | Original and treatment SQL with unrelated malformed retry data | Recorded with the regression result | Keep readiness on the original predicate |
+| Does the set improve the actual selectors? | Red work budget, alternating pair, JIT-off control | 28.36 s for all three processes, including module and DB setup | Exploratory variant identified JIT cost; final scope keeps ready-only unchanged |
+| Does a selective ready probe remain scoped? | Original and treatment SQL with unrelated malformed retry data | 12 s focused attempt; 28 s after replay/module rebuild | Direct head probes return empty; actual OR selectors both return error 22007; keep readiness unchanged |
 
 Coordination waits for a quiet benchmark interval are separate from these command
 measurements. They are not a reason to run noisy parallel timing samples. The
@@ -85,3 +88,24 @@ selection cannot exceed its observed SQL duration (about 49–53 ms on average).
 No end-to-end latency or rollout claim follows from adding those overlapping
 aggregate times. The change is small and avoids a recurring cost under the
 hosted planner defaults, so it is worth shipping with the other proven fixes.
+
+## Correctness and failure accounting
+
+Five real-PostgreSQL tests cover tuple scope, duplicate/null actions, exact
+boolean results, full payloads, future head ownership, independent reactions,
+paused/attention/agentmail exclusions, retry/processing deadlines, and provider
+sequence ordering. Six existing assembled chat tests also pass. They cover
+lease renewal failure, reverse-arrival Slack and Telegram events, lifecycle
+retry, edit/admission races, and deadline restoration.
+
+An exploratory malformed-retry test compared an actual OR selector against an
+AND-only oracle. That comparison was inconclusive. It must not be presented as
+proof of an introduced defect. The complete actual old and new OR selectors
+both return PostgreSQL error 22007 for unrelated malformed pending actions in
+the measured fixture, including other-company and null-delivery controls. The
+selective direct head probe returns empty on both versions. The final fix leaves
+ready-only evaluation unchanged.
+
+The initial repeated-action-scan hypothesis was also rejected. Both arms scan
+action history once in the measured plans. The benefits come from query costing
+and filter order, rather than fewer physical action scans.
