@@ -1,14 +1,13 @@
 import { and, asc, eq, gt, sql, type SQL } from "drizzle-orm";
 import { approvals, companies, issues, issueWorkProducts, type Db } from "@paperclipai/db";
+import { firstApprovalIssueId } from "./approval-visibility.js";
 import { executionIssueCondition } from "./issue-visibility.js";
 import { pullRequestSeedProductCondition } from "./decision-queue-seed-rules.js";
 import { decisionQueueService } from "./decision-queues.js";
 import type { createDeliveryWorkCoordinator } from "./delivery-work-coordinator.js";
 import { DELIVERY_QUEUES } from "./delivery-work-notifications.js";
 
-const linkedIssue = sql<string>`(select linked.issue_id from issue_approvals linked
-  where linked.company_id = ${approvals.companyId} and linked.approval_id = ${approvals.id}
-  order by linked.issue_id limit 1)`;
+const linkedIssue = firstApprovalIssueId();
 
 export function approvalQueueSeedingService(db: Db) {
   const pending = new Map<string | undefined, { cursor?: string; generation: number; failures: number; retryAt: number }>([[undefined, { generation: 0, failures: 0, retryAt: 0 }]]);

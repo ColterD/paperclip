@@ -56,6 +56,11 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
   afterAll(async () => { await db?.$client.end({ timeout: 1 }); await temporary?.cleanup(); });
   const old = () => new Date(Date.now() - delay - 60_000);
   const state = (id: string) => decisionRetentionService(db).getState(companyId, "join_request", id);
+  async function exactDeadline(id: string) {
+    const [row] = await db.select({ micros: sql<string>`(extract(epoch from ${joinRequests.updatedAt}) * 1000000)::bigint::text` })
+      .from(joinRequests).where(eq(joinRequests.id, id));
+    return Number((BigInt(row!.micros) + 999n) / 1000n) + delay;
+  }
   const authActor = () => ({ type: "board" as const, source: "local_implicit" as const, userId, companyIds: [companyId], isInstanceAdmin: true,
     memberships: [{ companyId, membershipRole: "owner", status: "active" }] });
   const mutation = (id: string) => ({ companyId, sourceKind: "join_request" as const, sourceId: id, authActor: authActor(),
@@ -111,7 +116,7 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
   it("wakes from real invite acceptance, waits for the saved deadline, and disarms on rejection", async () => {
     await start(); await quiet();
     const invitation = await invite(); const row = await accept(invitation.token);
-    await settle(); expect(coordinator!.nextWakeAt()).toBe(row.updatedAt.getTime() + delay);
+    await settle(); expect(coordinator!.nextWakeAt()).toBe(await exactDeadline(row.id));
     const reads = vi.spyOn(db, "select"); await vi.advanceTimersByTimeAsync(300_000);
     expect(reads).not.toHaveBeenCalled(); reads.mockRestore();
     const response = await request(app()).post(`/api/companies/${companyId}/join-requests/${row.id}/reject`).send({});
@@ -129,6 +134,27 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
     await vi.advanceTimersByTimeAsync(60_000); await archived(row.id); await quiet();
     expect((await db.select().from(joinRequests))[0].status).toBe("pending_approval");
     expect(await db.select().from(decisionArchiveNotificationOutbox)).toHaveLength(0);
+  });
+
+  it("rounds a submillisecond join deadline up to the next scheduler millisecond", async () => {
+    const row = await create(), floor = Date.now() + 120_000;
+    const activity = new Date(floor - delay).toISOString();
+    await db.execute(sql`update join_requests set updated_at = ${activity}::timestamptz + interval '456 microseconds' where id = ${row.id}`);
+    const service = joinRequestRetentionService(db);
+    expect(await service.next()).toBe(floor + 1);
+    expect(await service.sweep(new Date(floor))).toEqual({ archived: 0 });
+    expect(await state(row.id)).toBeNull();
+    expect(await service.sweep(new Date(floor + 1))).toEqual({ archived: 1 });
+  });
+
+  it.each(["keep", "archive", "revive"] as const)("applies %s to an unseen young request without reading the feed", async action => {
+    const row = await create(); expect(await state(row.id)).toBeNull();
+    const retention = decisionRetentionService(db);
+    const result = action === "keep" ? await retention.setKeep({ ...mutation(row.id), keep: true })
+      : action === "archive" ? await retention.archive(mutation(row.id)) : await retention.revive(mutation(row.id));
+    expect(result).toMatchObject({ sourceKind: "join_request", sourceId: row.id, sourceActivityAt: row.updatedAt, keep: action === "keep" });
+    expect(result.archivedAt).toEqual(action === "archive" ? expect.any(Date) : null);
+    expect(await state(row.id)).toMatchObject({ id: result.id });
   });
 
   it("reconstructs pending requests at startup and ignores resolved history", async () => {
@@ -226,7 +252,7 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
     });
     expect(await links.requestIdentityAccess(token, userId, "127.0.0.1")).toEqual({ status: "pending_approval" });
     await settle(); const [row] = await db.select().from(joinRequests);
-    expect(coordinator!.nextWakeAt()).toBe(row.updatedAt.getTime() + delay);
+    expect(coordinator!.nextWakeAt()).toBe(await exactDeadline(row.id));
     await links.requestIdentityAccess(token, userId, "127.0.0.1"); await settle();
     expect(await db.select().from(joinRequests)).toHaveLength(1);
   });
@@ -251,8 +277,30 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
       await writeJoinRequestChange(tx as unknown as Db, owner => owner.update(joinRequests).set({ updatedAt: new Date() }).where(eq(joinRequests.id, row.id)));
     });
     await admitted; const sweep = joinRequestRetentionService(db).sweep();
-    await vi.advanceTimersByTimeAsync(100); release(); await write; await sweep;
+    try {
+      await vi.waitFor(async () => {
+        const [row] = await db.execute(sql`select count(*)::int as waiting from pg_stat_activity
+          where datname = current_database() and pid <> pg_backend_pid() and wait_event_type = 'Lock'
+            and query like 'select%' and query like '%from "join_requests"%'`);
+        expect(row.waiting).toBe(1);
+      });
+    } finally { release(); await write; await sweep; }
     expect(await state(row.id)).toBeNull();
+  });
+
+  it("keeps an archived request archived when activity commits after the sweep until explicitly revived", async () => {
+    const row = await create(old()), service = joinRequestRetentionService(db);
+    expect(await service.sweep()).toEqual({ archived: 1 });
+    const archivedAt = (await state(row.id))!.archivedAt;
+    await writeJoinRequestChange(db, tx => tx.update(joinRequests).set({ updatedAt: new Date() }).where(eq(joinRequests.id, row.id)));
+    expect(await state(row.id)).toMatchObject({ archivedAt });
+    expect(await service.next()).toBeNull();
+    expect((await attentionService(db).list(companyId, { all: true, allowUnscopedAll: true })).items
+      .some(item => item.subject.id === row.id)).toBe(false);
+    await decisionRetentionService(db).revive(mutation(row.id));
+    expect((await state(row.id))!.archivedAt).toBeNull();
+    expect(await service.next()).toBe(await exactDeadline(row.id));
+    expect(await service.sweep()).toEqual({ archived: 0 });
   });
 
   it("pages past failed requests with database timestamp precision and retries them later", async () => {
@@ -269,6 +317,27 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
     expect(await service.sweep()).toEqual({ archived: 1 }); expect((await state(last))?.archivedAt).toBeInstanceOf(Date);
     await db.execute(sql`drop trigger join_retention_fail on decision_retention`);
     expect(await service.sweep()).toEqual({ archived: 100 }); expect(await service.sweep()).toEqual({ archived: 0 });
+    expect(await service.next()).toBeNull();
+  });
+
+  it("retries a failed request while newer overdue pages keep arriving", async () => {
+    const at = old(); const failed = await create(at);
+    const append = async (offset: number) => {
+      for (let i = 0; i < 100; i++) await create(new Date(at.getTime() + offset + i));
+    };
+    await append(1);
+    await db.execute(sql`create function join_retention_fail() returns trigger language plpgsql as $$ begin
+      if new.archived_at is not null and new.source_id = TG_ARGV[0] then raise exception 'retention unavailable'; end if;
+      return new; end $$`);
+    await db.execute(sql`create trigger join_retention_fail before update on decision_retention for each row execute function join_retention_fail(${sql.raw("'" + failed.id + "'")})`);
+    const service = joinRequestRetentionService(db);
+    await expect(service.sweep()).rejects.toThrow("Failed query");
+    await append(1000); await service.sweep();
+    await append(2000);
+    await db.execute(sql`drop trigger join_retention_fail on decision_retention`);
+    await service.sweep();
+    expect((await state(failed.id))?.archivedAt).toBeInstanceOf(Date);
+    while (await service.next() !== null) await service.sweep();
     expect(await service.next()).toBeNull();
   });
 

@@ -1,10 +1,12 @@
+import { createToolGatewayService } from "../services/tool-gateway.js";
+import { commitToolActionReview } from "../services/tool-action-review.js";
 import { googleWorkspaceSelectedScopes, defaultGitHubReviewPolicy, SLACK_CHAT_BOT_SCOPES, SLACK_BOT_TOOL_SCOPES } from "@paperclipai/shared";
 import { randomUUID, generateKeyPairSync } from "node:crypto";
 import { join } from "node:path";
 import { createServer } from "node:http";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
-import { activityLog, agentApiKeys, companies, companySecrets, companySecretVersions, chatConversations, chatDeliveries, chatEndpoints, chatExternalPrincipals, chatIdentityLinks, toolPolicies, toolRateLimitCounters, connectionGrants, connectionGrantDelegations, toolAccessAuditEvents, toolOauthStates, issueThreadInteractions, connectionIntentDeliveries, agents, companyMemberships, heartbeatRuns, issues, principalPermissionGrants, projects, toolConnections, toolMcpGateways, toolMcpGatewayTokens, toolActionRequests, toolCatalogEntries, toolInvocations, toolCallEvents, toolProfileBindings, plugins, adapterAuthSessions, environments, routines, chatGitHubReviews } from "@paperclipai/db";
+import { createDb, activityLog, agentApiKeys, companies, companySecrets, companySecretVersions, chatConversations, chatDeliveries, chatEndpoints, chatExternalPrincipals, chatIdentityLinks, toolPolicies, toolRateLimitCounters, connectionGrants, connectionGrantDelegations, toolAccessAuditEvents, toolOauthStates, issueThreadInteractions, connectionIntentDeliveries, agents, companyMemberships, heartbeatRuns, issues, principalPermissionGrants, projects, toolConnections, toolMcpGateways, toolMcpGatewayTokens, toolActionRequests, toolCatalogEntries, toolInvocations, toolCallEvents, toolProfileBindings, plugins, adapterAuthSessions, environments, routines, chatGitHubReviews } from "@paperclipai/db";
 import { findSatisfiedToolConnection, satisfiedConnectionIntentService } from "../services/satisfied-connection-intents.js";
 import { connectionManagementService, continuingConnectionManagement } from "../services/connection-management.js";
 import { redactRunnerApiPayloads } from "../services/native-runtime/runner-api-log-redaction.js";
@@ -866,6 +868,8 @@ describe("connection management with production default agents", () => {
         });
         const path = `/chat-endpoints/${created.body.id}/slack/test-message`;
         if (rate) {
+          // Keep both calls in one rate window even when CI crosses a minute boundary.
+          vi.useFakeTimers({ toFake: ["Date"] });
           // Shared buckets admit one actual send, while each principal's own
           // limit also prevents the next send. Neither may consume twice.
           expect(await f.request("POST", path, { requestId: randomUUID(), slackUserId: "UHUMAN" }, f.jwt), mode)
@@ -880,7 +884,7 @@ describe("connection management with production default agents", () => {
         expect(sends, mode).toBe(rate ? 1 : 0);
         const audit = await server.db.select().from(toolAccessAuditEvents).where(eq(toolAccessAuditEvents.companyId, f.companyId));
         expect(audit.some(event => event.details.agentId === f.agentId && event.actorId === f.agentId), mode).toBe(true);
-      } finally { provider = null; }
+      } finally { vi.useRealTimers(); provider = null; }
     }
   }, 90_000);
 
@@ -1251,7 +1255,7 @@ describe("connection management with production default agents", () => {
     expect((await use()).status).toBeGreaterThanOrEqual(400);
   });
 
-  it.each(["block", "ask", "ask-board", "ask-revoked", "ask-rate", "ask-new-rate", "ask-new-shared-rate", "ask-new-rate-target-block", "ask-token-revoked", "ask-token-deleted", "ask-token-scope", "ask-grant-revoked", "rate", "shared-rate", "target-block", "credential"] as const)("intersects gateway issuer and target rules (%s)", async mode => {
+  it.each(["block", "ask", "ask-board", "ask-revoked", "ask-rate", "ask-new-rate", "ask-new-shared-rate", "ask-new-rate-target-block", "ask-token-revoked", "ask-token-deleted", "ask-token-scope", "ask-grant-revoked", "ask-one-connection", "ask-one-connection-recovery", "ask-one-connection-revoked", "rate", "shared-rate", "target-block", "credential"] as const)("intersects gateway issuer and target rules (%s)", async mode => {
     const f = await fixture();
     const cookie = await server.humanSession(f.userId);
     const createdTarget = await fetch(`${server.apiUrl}/api/companies/${f.companyId}/agents`, { method: "POST", headers: { cookie, origin: server.apiUrl, "Content-Type": "application/json" },
@@ -1338,10 +1342,33 @@ describe("connection management with production default agents", () => {
       if (mode === "ask-token-revoked") await server.db.update(toolMcpGatewayTokens).set({ revokedAt: new Date() }).where(eq(toolMcpGatewayTokens.id, token.body.id));
       if (mode === "ask-token-deleted") await server.db.delete(toolMcpGatewayTokens).where(eq(toolMcpGatewayTokens.id, token.body.id));
       if (mode === "ask-token-scope") await server.db.update(toolMcpGatewayTokens).set({ allowedActions: ["tools/list"] }).where(eq(toolMcpGatewayTokens.id, token.body.id));
-      if (mode === "ask-grant-revoked") await server.db.delete(principalPermissionGrants).where(and(eq(principalPermissionGrants.principalId, f.agentId), eq(principalPermissionGrants.permissionKey, "tools:manage_connections")));
-      const approvalDenied = ["ask-revoked", "ask-new-rate-target-block", "ask-token-revoked", "ask-token-deleted", "ask-token-scope", "ask-grant-revoked"].includes(mode);
-      const response = await fetch(`${server.apiUrl}/api/tool-gateway/action-requests/${action.id}/approve`, { method: "POST", headers: { cookie, origin: server.apiUrl, "Content-Type": "application/json" }, body: JSON.stringify({ companyId: f.companyId }) });
-      expect(response.status, JSON.stringify(await response.json())).toBe(approvalDenied ? 403 : 200);
+      if (mode === "ask-grant-revoked" || mode === "ask-one-connection-revoked") await server.db.delete(principalPermissionGrants).where(and(eq(principalPermissionGrants.principalId, f.agentId), eq(principalPermissionGrants.permissionKey, "tools:manage_connections")));
+      const approvalDenied = ["ask-revoked", "ask-new-rate-target-block", "ask-token-revoked", "ask-token-deleted", "ask-token-scope", "ask-grant-revoked", "ask-one-connection-revoked"].includes(mode);
+      if (mode.startsWith("ask-one-connection")) {
+        const limited = createDb(server.databaseUrl, { maxConnections: 1, idleTimeoutSeconds: 0, maxLifetimeSeconds: 0 });
+        const service = createToolGatewayService(limited);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let attempt: Promise<unknown> | undefined;
+        try {
+          if (mode === "ask-one-connection-recovery") await commitToolActionReview(server.db, {
+            companyId: f.companyId, actionRequestId: action.id, decision: "approved", actor: { userId: f.userId },
+          });
+          attempt = mode === "ask-one-connection-recovery" ? service.recoverApprovedActionReviews(f.companyId)
+            : service.approveActionRequest({ companyId: f.companyId, actionRequestId: action.id, actor: { userId: f.userId } });
+          void attempt.catch(() => undefined);
+          const completed = Promise.race([attempt, new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("Single-connection gateway approval did not settle")), 5000);
+          })]);
+          if (approvalDenied) await expect(completed).rejects.toMatchObject({ status: 403 });
+          else await completed;
+          expect((await limited.execute(sql`select 1 as available`))[0].available).toBe(1);
+        } finally {
+          clearTimeout(timer); await limited.$client.end({ timeout: 1 }); await attempt?.catch(() => undefined);
+        }
+      } else {
+        const response = await fetch(`${server.apiUrl}/api/tool-gateway/action-requests/${action.id}/approve`, { method: "POST", headers: { cookie, origin: server.apiUrl, "Content-Type": "application/json" }, body: JSON.stringify({ companyId: f.companyId }) });
+        expect(response.status, JSON.stringify(await response.json())).toBe(approvalDenied ? 403 : 200);
+      }
       expect(calls).toBe(approvalDenied ? 0 : 1);
       if (mode.startsWith("ask-new-")) {
         const counters = await server.db.select().from(toolRateLimitCounters).where(eq(toolRateLimitCounters.companyId, f.companyId));
