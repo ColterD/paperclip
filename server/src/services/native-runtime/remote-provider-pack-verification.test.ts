@@ -61,11 +61,12 @@ describe("installed provider pack compatibility", () => {
     }
   });
   const reseal = (pack: ProviderPackIdentity) => ({ ...pack, digest: sha(canonicalProviderPackJson(pack.payload)) });
-  const check = (installed: ProviderPackIdentity, options: { immutable?: boolean; requireExactIdentity?: boolean } = {}) => {
+  const check = (installed: ProviderPackIdentity, options: { immutable?: boolean; requireExactIdentity?: boolean; requireCurrentOpenCodeProxy?: boolean } = {}) => {
     const execute = vi.fn();
     return verifyRemoteProviderPack({ runner: { execute }, cwd: "/workspace", packRoot: "/opt/paperclip-runner/provider-pack",
       manifest: manifest("b"), installation: { root: "/opt/paperclip-runner/provider-pack", manifest: installed, immutable: options.immutable ?? true },
-      provider: { kind: "opencode" }, requireExactIdentity: options.requireExactIdentity });
+      provider: { kind: "opencode" }, requireExactIdentity: options.requireExactIdentity,
+      requireCurrentOpenCodeProxy: options.requireCurrentOpenCodeProxy });
   };
   it.each(["interface", "platform", "schema", "artifact_path", "digest", "legacy"])("rejects an incompatible %s", async field => {
     let pack = manifest("a");
@@ -84,6 +85,15 @@ describe("installed provider pack compatibility", () => {
   it("does not replace an admitted pack during reattachment", async () => {
     await expect(check(manifest("a"), { requireExactIdentity: true })).rejects.toThrow("incompatible");
     await expect(check(manifest("b"), { requireExactIdentity: true })).resolves.toEqual(manifest("b"));
+  });
+  it("requires the current proxy for requested OpenCode diagnostics", async () => {
+    const installed = manifest("a");
+    await expect(check(installed)).resolves.toEqual(installed);
+    await expect(check(installed, { requireCurrentOpenCodeProxy: true }))
+      .rejects.toThrow("requested OpenCode diagnostics");
+    installed.payload.artifacts.opencodeProxy = manifest("b").payload.artifacts.opencodeProxy;
+    await expect(check(reseal(installed), { requireCurrentOpenCodeProxy: true }))
+      .resolves.toEqual(reseal(installed));
   });
   it("ignores unrelated provider and dependency changes for OpenCode", async () => {
     const pack = manifest("a");

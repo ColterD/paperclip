@@ -4,6 +4,7 @@ import express from "express";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  applyPendingMigrations,
   activityLog,
   agents,
   authUsers,
@@ -107,6 +108,7 @@ describeEmbeddedPostgres("smoke lab service pack and results API", () => {
 
   beforeAll(async () => {
     if (!externalTestDatabaseUrl) tempDb = await startEmbeddedPostgresTestDatabase("paperclip-smoke-lab-");
+    if (externalTestDatabaseUrl) await applyPendingMigrations(externalTestDatabaseUrl);
     db = createDb(externalTestDatabaseUrl ?? tempDb!.connectionString);
   }, 20_000);
 

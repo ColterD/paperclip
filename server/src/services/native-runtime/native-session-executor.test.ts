@@ -1659,9 +1659,11 @@ describe("remote provider pack manifest", () => {
     return JSON.stringify(value);
   };
 
-  it.each(["opencode", "cursor", "claude-x64", "claude-arm64"] as const)("uses the bundled Linux image authority for remote %s without controller overrides", async provider => {
+  it.each(["opencode", "opencode-diagnostics", "opencode-diagnostics-stale", "cursor", "claude-x64", "claude-arm64"] as const)("uses the bundled Linux image authority for remote %s without controller overrides", async provider => {
     const architecture = provider === "claude-arm64" ? "arm64" : "x64";
     const claude = provider.startsWith("claude-");
+    const opencode = provider.startsWith("opencode");
+    const diagnostics = provider.startsWith("opencode-diagnostics");
     const root = await mkdtemp(join(tmpdir(), "paperclip-bundled-image-"));
     const digest = "sha256:" + "a".repeat(64);
     const artifacts = Object.fromEntries(Object.entries({
@@ -1669,7 +1671,7 @@ describe("remote provider pack manifest", () => {
       productionLock: "pnpm-lock.yaml", opencodeCommand: "node_modules/.bin/opencode",
       opencodeExecutable: "node_modules/opencode-ai/bin/opencode.exe",
       opencodeProxy: "dist/cli/opencode-app-server-proxy.cjs", acpxSidecar: "dist/cli/acpx-runtime-sidecar.cjs",
-    }).map(([key, path]) => [key, { path, sha256: digest }])) as Record<"nodeCommand" | "opencodeCommand", { path: string; sha256: string }>;
+    }).map(([key, path]) => [key, { path, sha256: digest }])) as Record<"nodeCommand" | "opencodeCommand" | "opencodeProxy", { path: string; sha256: string }>;
     const payload = {
       compatibility: { opencode: 1, acpx: 1 },
       target: { platform: "linux", architecture }, runnerSourceRevision: "a".repeat(40),
@@ -1695,16 +1697,17 @@ describe("remote provider pack manifest", () => {
     daemon.writeUInt16LE(architecture === "arm64" ? 183 : 62, 18);
     await writeFile(state.bundledRunnerBinary, daemon);
     if (claude) state.resolveRemoteRunnerBinary.mockResolvedValue(state.bundledRunnerBinary);
-    const remoteExecution = { ...execution, provider: provider === "opencode"
+    const remoteExecution = { ...execution, provider: opencode
       ? { kind: "opencode", model: null } : { kind: "acpx", agent: claude ? "claude" : "cursor", model: null },
       workspace: { ...execution.workspace, cwd: root },
-      session: { ...execution.session, normalizedSessionId: `bundled-${provider}-${randomUUID()}`, driverKind: provider === "opencode" ? "opencode_server" : "acpx_runtime" },
+      session: { ...execution.session, normalizedSessionId: `bundled-${provider}-${randomUUID()}`, driverKind: opencode ? "opencode_server" : "acpx_runtime" },
     } as unknown as NativeExecutionInputV1;
     const syncIn = vi.fn(async (_operations: { files: { kind: string }[] }[]) => undefined);
     const installed = structuredClone(manifest);
-    if (provider === "opencode") {
+    if (opencode) {
       installed.payload.runnerSourceRevision = "c".repeat(40);
       installed.payload.artifacts.nodeCommand.sha256 = "sha256:" + "d".repeat(64);
+      if (provider !== "opencode-diagnostics") installed.payload.artifacts.opencodeProxy.sha256 = "sha256:" + "e".repeat(64);
       installed.digest = "sha256:" + createHash("sha256").update(canonical(installed.payload)).digest("hex");
     }
     const execute = vi.fn(async (command: { command: string; args?: string[] }) => ({
@@ -1717,12 +1720,18 @@ describe("remote provider pack manifest", () => {
       }) : "",
     }));
     try {
-      await createRunnerdBackend({ db: leaseDb(remoteExecution), execution: remoteExecution,
+      const prepare = createRunnerdBackend({ db: leaseDb(remoteExecution), execution: remoteExecution,
         runnerInstanceId: "bundled-image-runner", runnerIngressAuthorized: true,
-        ...(provider === "opencode" ? { runnerEnvironment: { PAPERCLIP_NATIVE_MCP_NAME: "assigned-fixture", PAPERCLIP_NATIVE_MCP_URL: "http://127.0.0.1/mcp/gateways/assigned-fixture", PAPERCLIP_NATIVE_MCP_TOKEN: "private-fixture" } } : {}),
+        ...(opencode ? { runnerEnvironment: { ...configuredEnvironmentProjection(diagnostics ? { PAPERCLIP_OPENCODE_PERFORMANCE_DIAGNOSTICS: "1" } : {}), PAPERCLIP_NATIVE_MCP_NAME: "assigned-fixture", PAPERCLIP_NATIVE_MCP_URL: "http://127.0.0.1/mcp/gateways/assigned-fixture", PAPERCLIP_NATIVE_MCP_TOKEN: "private-fixture" } } : {}),
         runnerExecutionTarget: { kind: "remote", transport: "sandbox", remoteCwd: "/workspace",
           environmentId: "environment", leaseId: "lease", providerKey: "daytona",
           effectiveCapabilities: { runnerWebSocketIngress: true }, runner: { execute, syncIn } } as never });
+      if (provider === "opencode-diagnostics-stale") {
+        await expect(prepare).rejects.toThrow("image provider pack did not match the bundled release identity");
+        expect(state.createBackend).not.toHaveBeenCalled();
+        return;
+      }
+      await prepare;
       state.createTransport.mockClear();
       state.createBackend.mock.calls.at(-1)![1].codexTransportFactory!();
       const transport = state.createTransport.mock.calls.at(-1)![0] as RunnerTransportOptions & {
@@ -1730,9 +1739,10 @@ describe("remote provider pack manifest", () => {
         environment?: NodeJS.ProcessEnv;
       };
       expect(transport.runnerBinary).toBe(state.bundledRunnerBinary);
-      if (provider === "opencode") {
+      if (opencode) {
         expect(state.createAssignedMcpTools).toHaveBeenCalledWith(expect.objectContaining({ gatewayPublicId: "assigned-fixture", bearerToken: "private-fixture", delivery: "on_demand" }));
         for (const name of ["PAPERCLIP_NATIVE_MCP_NAME", "PAPERCLIP_NATIVE_MCP_URL", "PAPERCLIP_NATIVE_MCP_TOKEN"]) expect(transport.environment?.[name]).toBeUndefined();
+        expect(transport.environment?.PAPERCLIP_OPENCODE_PERFORMANCE_DIAGNOSTICS).toBe(diagnostics ? "1" : undefined);
       }
       if (claude) {
         expect(state.resolveRemoteRunnerBinary).toHaveBeenCalledWith(expect.objectContaining({ remoteCwd: "/workspace", configuredPath: undefined }));
@@ -1750,7 +1760,8 @@ describe("remote provider pack manifest", () => {
       expect(execute.mock.calls.filter(([call]) => call.args?.[0] === "--build-metadata")).toHaveLength(1);
       expect(execute.mock.calls.some(([call]) => call.args?.[0] === "-e" || call.args?.[0] === "--version")).toBe(false);
       expect(syncIn.mock.calls.every(([operations]) => operations.every(operation => operation.files.every(file => file.kind === "file")))).toBe(true);
-      if (provider === "claude-x64") {
+      if (provider === "claude-x64" || provider === "opencode") {
+        const admitted = opencode ? installed : manifest;
         const identity = transport.prpIdentity!;
         const artifact = { version: "0.0.0", digest: "sha256:" + createHash("sha256").update(daemon).digest("hex") };
         resolveRemoteProviderPackAuthority({ stateDirectory: transport.stateDirectory!,
@@ -1758,7 +1769,7 @@ describe("remote provider pack manifest", () => {
             workspaceId: remoteExecution.binding.executionWorkspaceId, sessionId: remoteExecution.session.normalizedSessionId!,
             runnerInstanceId: identity.runnerInstanceId, environmentLeaseId: identity.environmentLeaseId,
             remoteCwd: "/workspace", providerDigest: nativeSha256(remoteExecution.provider) },
-          reattach: false, current: () => manifest, runnerArtifact: () => artifact }).verified();
+          reattach: false, current: () => admitted, runnerArtifact: () => artifact }).verified();
         await mkdir(join(transport.stateDirectory!, "control-plane"), { recursive: true });
         await writeFile(join(transport.stateDirectory!, "control-plane", "control-plane-state.json"), JSON.stringify(durableControlPlaneState(identity)));
         const next = structuredClone(manifest);
@@ -1771,7 +1782,7 @@ describe("remote provider pack manifest", () => {
             schema: "paperclip-runner/runnerd-build-metadata/v1", binaryName: "paperclip-runnerd",
             packageName: "@paperclipai/paperclip-runner", binaryContractVersion: 2,
             durableSessionCapabilities: ["unlimited_runtime", "connection_lease_renewal"], prpTransportModes: ["listen_ws"],
-            providerPacks: [{ root: "/opt/paperclip-runner/provider-pack", manifest, immutable: true }],
+            providerPacks: [{ root: "/opt/paperclip-runner/provider-pack", manifest: admitted, immutable: true }],
           }) };
           if (request.args[0] === "-e" || request.args[0] === "--version") return { exitCode: 0, timedOut: false, stderr: "", stdout: request.args[0] === "--version" ? "1.18.34" : "" };
           const script = request.args[1];
@@ -1781,6 +1792,7 @@ describe("remote provider pack manifest", () => {
         });
         await createRunnerdBackend({ db: leaseDb(remoteExecution), execution: remoteExecution,
           runnerInstanceId: identity.runnerInstanceId, runnerIngressAuthorized: true,
+          ...(opencode ? { runnerEnvironment: configuredEnvironmentProjection({ PAPERCLIP_OPENCODE_PERFORMANCE_DIAGNOSTICS: "1" }) } : {}),
           runnerExecutionTarget: { kind: "remote", transport: "sandbox", remoteCwd: "/workspace",
             environmentId: "environment", leaseId: "lease", providerKey: "daytona", effectiveCapabilities: { runnerWebSocketIngress: true }, runner: { execute: recoveryExecute },
             sandboxLeaseAcquisition: { outcome: "resumed", providerLeaseId: "sandbox" } } as never,
@@ -1790,7 +1802,7 @@ describe("remote provider pack manifest", () => {
         });
         state.createBackend.mock.calls.at(-1)![1].codexTransportFactory!();
         const recovered = state.createTransport.mock.calls.at(-1)![0];
-        expect(recovered).toMatchObject({ providerPackAuthorityDigest: manifest.digest, runnerArtifact: artifact, adoptExistingRunner: { pid: 123 } });
+        expect(recovered).toMatchObject({ providerPackAuthorityDigest: admitted.digest, runnerArtifact: artifact, adoptExistingRunner: { pid: 123 } });
       }
     } finally {
       state.bundledPackManifestPath = null; state.bundledRunnerBinary = null;
@@ -11424,6 +11436,36 @@ describe("runnerd provider runtime wiring", () => {
       provider: "acpx", acpxAgent: "claude", acpxPermissionMode: "approve-all",
       acpxPermissionModePinned: true, claudeEffort: "high", homeMode,
     });
+  });
+
+  it.each(["isolated", "preconfigured"].flatMap(homeMode =>
+    [true, false].map(disableWebSearch => ({ homeMode, disableWebSearch })),
+  ))("pins Grok v10 permissions, effort and search policy at daemon startup: $homeMode $disableWebSearch", async ({ homeMode, disableWebSearch }) => {
+    const current = { ...execution, schema: "paperclip.native-execution-input.v10", homeMode,
+      provider: { kind: "acpx", agent: "grok", model: "grok-4.7", permissionMode: "approve-all",
+        grokEffort: "high", grokDisableWebSearch: disableWebSearch },
+      session: { ...execution.session, driverKind: "acpx_runtime" },
+    } as unknown as NativeExecutionInput;
+    const startup = { db: leaseDb(current), execution: current,
+      runnerInstanceId: `grok-v10-pinned-${homeMode}-${disableWebSearch}`,
+      managedAiCredentialHome: join(isolatedStateDirectory, "absent-grok-login") };
+    await createRunnerdBackend({ ...startup, runnerEnvironment: { XAI_API_KEY: "synthetic-grok-api-key" } });
+    state.createBackend.mock.calls.at(-1)![1].codexTransportFactory!();
+    expect(state.createTransport.mock.calls.at(-1)![0]).toMatchObject({
+      provider: "acpx", acpxAgent: "grok", acpxPermissionMode: "approve-all",
+      acpxPermissionModePinned: true, grokEffort: "high", grokDisableWebSearch: disableWebSearch, homeMode,
+    });
+  });
+
+  it("requires explicit Grok credentials before v10 daemon startup", async () => {
+    const current = { ...execution, schema: "paperclip.native-execution-input.v10", homeMode: "isolated",
+      provider: { kind: "acpx", agent: "grok", model: "grok-4.7", permissionMode: "approve-all", grokEffort: "high" },
+      session: { ...execution.session, driverKind: "acpx_runtime" },
+    } as unknown as NativeExecutionInput;
+    await expect(createRunnerdBackend({ db: leaseDb(current), execution: current,
+      runnerInstanceId: "grok-v10-missing-credential", runnerEnvironment: {},
+      managedAiCredentialHome: join(isolatedStateDirectory, "absent-grok-login"),
+    })).rejects.toThrow("Grok subscription login is unavailable");
   });
 
   it("copies back and removes Grok credentials from the exact ACPX launch home", async () => {

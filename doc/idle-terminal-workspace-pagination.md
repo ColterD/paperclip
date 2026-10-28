@@ -81,3 +81,23 @@ including Git/filesystem migration, recovery, and exact retry-deadline checks.
 The fixture itself prepared the databases. This repair changes no production
 recovery code. Evidence: `/tmp/sleep-workspace-fresh-red.log` and
 `/tmp/sleep-workspace-fresh-green.log`.
+
+
+## Current parent verification
+
+Approval-retention parent `3efda33812` is integrated with normal merges. All
+workspace precision, retry and fixture implementations remain unchanged from the
+preceding candidate. All 136 cases in the complete workspace-service, terminal
+worker, isolated-rehome and nested-clone suites pass at `9d846c84e7`; server types
+and production build pass with the current Runner vendor.
+
+The preceding `f0f0de1f6f` run also passed all 136 cases with three newly created,
+unmigrated external databases: the suites themselves applied the current
+migrations. The `9d846c84e7` run reused those clean fixtures after the parent's
+approval wake repair. This retains actual proof of fixture self-preparation
+without mislabeling the reused run as a fresh-database test. No new migration,
+queue, wake contract or workspace policy change is added by this PR.
+
+Earlier microsecond starvation, one-millisecond retry drift and missing-schema
+failures remain documented above. Fresh exact-head CI and both 5/5 reviews remain
+required in stack order; the parent is not claimed merged.

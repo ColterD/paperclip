@@ -1,4 +1,5 @@
 import { scheduledIssueMonitorWait } from "../issue-monitors.js";
+import { onboardingFirstTaskCompletionAllowed } from "../onboarding-first-task-admission.js";
 import { hasPublishedGitHubReview, readInheritedGitHubReviewWait } from "../chat-channels/github/review-wait.js";
 import { pendingNativeGovernance } from "./native-governance.js";
 import { findSupersededExternalReviewRequests, supersedeExternalReviewRequestsInTransaction } from "./superseded-external-review-requests.js";
@@ -1657,6 +1658,11 @@ export async function commitNativeStatusDecision(input: {
     ) {
       throw new NativeStatusRaceError();
     }
+    // Recheck under the issue lock, retaining run/proposal/document proof until
+    // commit. A newer decision cannot race an earlier first-task Done assessment.
+    if (input.decision.statusAction === "done" && !await onboardingFirstTaskCompletionAllowed(tx as unknown as Db, {
+      companyId: input.companyId, issueId: input.issueId, runId: input.runId,
+    })) throw new NativeStatusRaceError();
     if (reasonCode === "scheduled_monitor_waiting") {
       const expected = input.requireMonitorWait;
       const inReview = input.decision.statusAction === "in_review" && input.decision.toStatus === "in_review";

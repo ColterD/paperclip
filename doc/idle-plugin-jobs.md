@@ -154,3 +154,50 @@ TypeScript checks pass on the owning slice. The first full run crossed the next
 hourly cron boundary during a retry fixture and legitimately produced extra runs;
 its fixed clock now isolates that test from wall-clock start time while preserving
 its assertions. Stack integration and latest-head CI are separate gates.
+
+
+## Bounded completion writes
+
+A retained completion transaction now sets a PostgreSQL statement timeout local
+to that transaction, thirty seconds by default. A database row lock cannot hold
+the completion attempt forever. Both ordinary reconciliation and the final
+shutdown flush use the same retained writer. On timeout, the result remains in
+memory and the existing recovery owner can retry it without invoking the plugin
+again. Shutdown reports the persistence failure and continues through the existing
+cleanup/retry boundary. The timeout resets when the transaction ends; no shared
+pool setting or polling loop is added.
+
+The bound applies to PostgreSQL statement execution and lock waits. It is not a
+new bound on the plugin RPC, every shutdown operation, or a network failure before
+PostgreSQL receives a statement. A retained result is process-local; after process
+loss, existing durable run rows and their existing orphan policy remain the source
+of truth. This change does not make arbitrary plugin side effects replayable.
+
+A real PostgreSQL regression first observed a completion waiting for a held run
+row, then demonstrated that shutdown remained pending. With the repair, PostgreSQL
+cancels the write, shutdown reports failure while the lock is still held, and the
+saved completion commits after release without a second plugin call. All 34
+scheduler cases pass. All 247 cases in eleven complete scheduler/shutdown/startup,
+warm-standby, driver-readiness, coordinator, scoped-deadline, approval/join
+retention, approval seeding and decision-expiry suites pass, along with server
+typecheck and production build, at `36be0bd733`. Earlier failures and their stated
+revisions remain above. Fresh final-parent integration and exact-head remote
+checks/reviews remain required.
+
+
+Final parent `51668b8240` changes only approval-seeding behavior/tests and two
+documents relative to the 247-case candidate. All plugin implementation, plugin
+tests, shared deadline/coordinator and shutdown sources remain identical to that
+run. After normal integration, all 63 cases in complete plugin-scheduler,
+approval-seeding and scoped-deadline suites pass at `56ce7c1d2a`, plus server
+typecheck/build. The original seventeen-file plugin boundary and exact parent
+migration metadata are preserved. Publication waits for the parent to land so
+final master reconciliation and remote checks can run together.
+
+
+Approval seeding #17510 merged as `4e27a82a42`, with both final-head 5/5 reviews
+and all 58 accepted checks. Plugin scheduling now integrates that actual master
+parent. The complete integrated tree is byte-identical to `df78ca3b5e`, so the
+247-case and final 63-case verification above retain their exact source scope.
+No local checks were repeated on unchanged code. Only final publication docs
+change afterwards; fresh exact-head CI and reviews remain required against master.

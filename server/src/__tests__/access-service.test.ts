@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
+  applyPendingMigrations,
   agents,
   companySecretBindings,
   companySecrets,
@@ -65,6 +66,7 @@ describeEmbeddedPostgres("access service", () => {
 
   beforeAll(async () => {
     if (!externalTestDatabaseUrl) tempDb = await startEmbeddedPostgresTestDatabase("paperclip-access-service-");
+    if (externalTestDatabaseUrl) await applyPendingMigrations(externalTestDatabaseUrl);
     db = createDb(externalTestDatabaseUrl ?? tempDb!.connectionString);
   }, 20_000);
 

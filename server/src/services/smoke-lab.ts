@@ -1,4 +1,4 @@
-import { writeToolConnectionHealthChange } from "./tool-connection-health-notifications.js";
+import { notifyToolConnectionHealth, writeToolConnectionHealthChange } from "./tool-connection-health-notifications.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -691,14 +691,20 @@ export function smokeLabService(db: Db, options: {
     ));
     const now = new Date();
     if (existing) {
-      const [updated] = await writeToolConnectionHealthChange(db, { companyId: input.companyId, applicationId: existing.id }, tx => tx.update(toolApplications).set({
-        name: input.name,
-        description: input.description,
-        type: input.type,
-        status: "active",
-        metadata: { smokeLab: true },
-        updatedAt: now,
-      }).where(eq(toolApplications.id, existing.id)).returning());
+      const [updated] = await db.transaction(async tx => {
+        const [current] = await tx.select({ type: toolApplications.type }).from(toolApplications)
+          .where(and(eq(toolApplications.id, existing.id), eq(toolApplications.companyId, input.companyId)))
+          .for("no key update");
+        if (current && current.type !== input.type) await notifyToolConnectionHealth(tx, { companyId: input.companyId, applicationId: existing.id });
+        return tx.update(toolApplications).set({
+          name: input.name,
+          description: input.description,
+          type: input.type,
+          status: "active",
+          metadata: { smokeLab: true },
+          updatedAt: now,
+        }).where(eq(toolApplications.id, existing.id)).returning();
+      });
       return { row: updated ?? existing, created: false };
     }
     const [created] = await db.insert(toolApplications).values({

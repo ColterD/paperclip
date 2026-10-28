@@ -1221,8 +1221,12 @@ export function toolAccessService(
       safeDefault: true,
     };
     if (existing) {
-      const [updated] = await writeToolConnectionHealthChange(db, { companyId, applicationId: existing.id }, tx => tx
-        .update(toolApplications)
+      const [updated] = await db.transaction(async tx => {
+        const [current] = await tx.select({ type: toolApplications.type }).from(toolApplications)
+          .where(and(eq(toolApplications.id, existing.id), eq(toolApplications.companyId, companyId)))
+          .for("no key update");
+        if (current && current.type !== "mcp_stdio") await notifyToolConnectionHealth(tx, { companyId, applicationId: existing.id });
+        return tx.update(toolApplications)
         .set({
           name: definition.applicationName,
           description: definition.applicationDescription,
@@ -1233,7 +1237,8 @@ export function toolAccessService(
           updatedAt: new Date(),
         })
         .where(eq(toolApplications.id, existing.id))
-        .returning());
+        .returning();
+      });
       return { row: updated, created: false };
     }
     const [created] = await db
