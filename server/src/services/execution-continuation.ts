@@ -418,8 +418,8 @@ export async function buildExecutionContinuation(input: {
     // message author. At dispatch, prove that exact queue was adopted by this
     // run; caller-supplied continuation context cannot grant this authority.
     const queueIntentId = z.string().guid().safeParse(explicitContinuation.queuedCommentInterruptId);
-    const nativeQueuedStop = predecessor?.runtimeMode === "native" && predecessor.status === "cancelled";
-    const [recordedQueue] = nativeQueuedStop && input.runId && queueIntentId.success ? await db.select().from(agentWakeupRequests).where(and(
+    const nativeQueuedContinuation = predecessor?.runtimeMode === "native" && ["cancelled", "failed"].includes(predecessor.status);
+    const [recordedQueue] = nativeQueuedContinuation && input.runId && queueIntentId.success ? await db.select().from(agentWakeupRequests).where(and(
       eq(agentWakeupRequests.id, queueIntentId.data), eq(agentWakeupRequests.companyId, companyId),
       eq(agentWakeupRequests.agentId, input.agentId), eq(agentWakeupRequests.status, "coalesced"),
       eq(agentWakeupRequests.runId, input.runId), sql`${agentWakeupRequests.payload}->>'issueId' = ${issueId}`,

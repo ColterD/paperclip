@@ -2154,7 +2154,11 @@ bypass process or workspace cleanup. Other Send clicks must follow the Stop.
 Only a persisted Agent Chat `/new` authored by the requesting user retains the
 conversation-reset exception. Ordinary follow-ups still wait for an accepted
 result to finish committing, even after workspace export recovery clears its
-execution blocker. Workspace recovery holds still block the reset.
+execution blocker. Committed successful results no longer create continuation
+waits from recovered-export history. Applied conversation resets retire older
+non-workspace holds; active workspace holds remain authoritative across the
+boundary. Workspace recovery holds still block the reset. Queue authorization
+is read again at dispatch for both cancelled and failed native predecessors.
 
 The active session advertises steering only when its driver supports it. A
 transport method that rejects steering does not grant that capability. The

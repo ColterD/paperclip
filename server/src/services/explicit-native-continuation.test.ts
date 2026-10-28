@@ -2172,6 +2172,57 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
     expect((await db.select().from(nativeRunFinalizations).where(eq(nativeRunFinalizations.runId, f.sourceRunId)))[0]).toMatchObject({ phase: "result_accepted", resultId });
   });
 
+  it.each(["completed", "after_reset", "after_reset_workspace_hold"])("admits fresh messages after historical execution work is cleared: %s", async scenario => {
+    const f = await seed(), settings = instanceSettingsService(db), previous = await settings.getExperimental();
+    try {
+      if (scenario === "completed") {
+        await seedResultBeforeTerminalFailure(f);
+        await db.update(nativeRunFinalizations).set({ phase: "committed", leaseOwner: null }).where(eq(nativeRunFinalizations.runId, f.sourceRunId));
+        await db.update(heartbeatRuns).set({ status: "succeeded" }).where(eq(heartbeatRuns.id, f.sourceRunId));
+        await db.update(issueRecoveryActions).set({ status: "resolved", outcome: "recovered", cause: "native_workspace_sync_out_retry_exhausted",
+          evidence: { runId: f.sourceRunId, workspaceRecovery: { status: "recovered" }, systemRecovery: createSystemRecovery(f.sourceRunId) },
+        }).where(eq(issueRecoveryActions.sourceIssueId, f.issueId));
+      } else {
+        await settings.updateExperimental({ enableAgentChat: true });
+        const boundaryId = randomUUID();
+        await db.insert(issueComments).values({ id: boundaryId, companyId: f.companyId, issueId: f.issueId, authorType: "user", authorUserId: "board", body: "/new", createdAt: new Date("2026-09-11T10:30:00Z") });
+        await db.update(issues).set({ conversationAgentId: f.agentId, conversationUserId: "board", conversationState: "active", conversationBoundaryCommentId: boundaryId }).where(eq(issues.id, f.issueId));
+        await db.update(issueRecoveryActions).set({ createdAt: new Date("2026-09-11T09:00:00Z") }).where(eq(issueRecoveryActions.sourceIssueId, f.issueId));
+        await db.update(heartbeatRuns).set({ processPid: null }).where(eq(heartbeatRuns.id, f.sourceRunId));
+        if (scenario === "after_reset_workspace_hold") {
+          await db.update(heartbeatRuns).set({ processPid: 999999999, resultJson: { workspaceRestoreFailure: "restore_unsafe_archive" } }).where(eq(heartbeatRuns.id, f.sourceRunId));
+          await db.update(issueRecoveryActions).set({ evidence: { runId: f.sourceRunId, workspaceRestoreFailure: "restore_unsafe_archive", automaticRecovery: { replay: "blocked" } } }).where(eq(issueRecoveryActions.sourceIssueId, f.issueId));
+        }
+      }
+      const blocker = await getExecutionBlocker(db, f.companyId, f.issueId);
+      if (scenario === "after_reset_workspace_hold") expect(blocker).not.toBeNull(); else expect(blocker).toBeNull();
+      await db.insert(heartbeatRuns).values({ companyId: f.companyId, agentId: f.agentId, status: "running" });
+      const wake = await heartbeatService(db).wakeup(f.agentId, { source: "on_demand", triggerDetail: "manual", reason: "issue_commented",
+        requestedByActorType: "user", requestedByActorId: "board", payload: { issueId: f.issueId, commentId: f.commentId },
+        contextSnapshot: { source: "issue.comment", issueId: f.issueId, wakeCommentId: f.commentId },
+      });
+      if (scenario === "after_reset_workspace_hold") expect(wake).toBeNull();
+      else { expect(wake).not.toBeNull(); expect(wake).toMatchObject({ status: "queued" }); }
+    } finally { await settings.updateExperimental(previous); }
+  });
+
+  it("dispatches a fresh native Send after a committed failed result without a recovery action", async () => {
+    const f = await seed(), resultId = await seedResultBeforeTerminalFailure(f), queueId = randomUUID();
+    await db.delete(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, f.issueId));
+    await db.update(nativeRunResults).set({ resultJson: { terminal: { runTerminalState: "failed" } } }).where(eq(nativeRunResults.id, resultId));
+    await db.update(nativeRunFinalizations).set({ phase: "committed", failureDetail: null, leaseOwner: null }).where(eq(nativeRunFinalizations.runId, f.sourceRunId));
+    await db.insert(agentWakeupRequests).values({ id: queueId, companyId: f.companyId, agentId: f.agentId, source: "on_demand", reason: "issue_commented", status: "deferred_issue_execution",
+      payload: { issueId: f.issueId, _paperclipWakeContext: { wakeCommentIds: [f.commentId] }, queuedCommentInterrupt: { actorId: "board", requestedAt: "2026-09-11T11:30:00Z" } } });
+    const continuation = await db.transaction(tx => admitExplicitNativeContinuation({ ...f, db: tx as unknown as typeof db, queuedCommentInterruptId: queueId }));
+    expect(continuation).toMatchObject({ previousRunId: f.sourceRunId });
+    const context = { issueId: f.issueId, previousRunId: f.sourceRunId, wakeCommentId: f.commentId, wakeCommentIds: [f.commentId], explicitUserContinuation: continuation };
+    await db.insert(heartbeatRuns).values({ id: f.successorRunId, companyId: f.companyId, agentId: f.agentId, runtimeMode: "native", nativeIssueId: f.issueId, status: "queued", contextSnapshot: context });
+    await db.update(agentWakeupRequests).set({ status: "coalesced", runId: f.successorRunId }).where(eq(agentWakeupRequests.id, queueId));
+    const envelope = await buildExecutionContinuation({ db, companyId: f.companyId, issueId: f.issueId, agentId: f.agentId, runId: f.successorRunId, context, summary: null, exposeLowTrustRaw: false });
+    expect(envelope.interruptedRunId).toBe(f.sourceRunId);
+    expect(envelope.originCommentIds).toContain(f.commentId);
+  });
+
   it("keeps exhausted workspace export on its own repair path after the sandbox stops", async () => {
     const f = await seed(), resultId = await seedResultBeforeTerminalFailure(f);
     await db.delete(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, f.issueId));
