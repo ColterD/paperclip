@@ -30,7 +30,42 @@ import { activeIssueInteractionCondition } from "./issue-question-context.js";
 import { historicalAdapterType, isConversationAdapter } from "./conversation-continuation.js";
 import { queuedCommentIdsFromWakePayload } from "./issue-queued-comment-queue.js";
 
-type Run = typeof heartbeatRuns.$inferSelect;
+type Run = Pick<typeof heartbeatRuns.$inferSelect,
+  "id" | "companyId" | "agentId" | "status" | "startedAt" | "finishedAt" | "createdAt" |
+  "issueId" | "nativeIssueId" | "nativeSessionId" | "runnerInstanceId" | "runtimeMode" |
+  "runtimeModeResolvedAt" | "errorCode" | "error" | "resultJson" | "contextSnapshot" |
+  "runnerProfileJson" | "processPid" | "processGroupId" | "processStartedAt" |
+  "sessionIdAfter" | "controllerBootId" | "controllerLeaseExpiresAt" | "executionStage">;
+const continuationContextKeys = ["issueId", "wakeCommentId", "wakeCommentIds", "source",
+  "connectionIntentResolution", "interactionKind", "interactionStatus", "mutation", "interactionId"];
+const continuationContext = sql<Run["contextSnapshot"]>`case
+  when ${heartbeatRuns.contextSnapshot} is null then null else (
+    select coalesce(jsonb_object_agg(field.key, field.value), '{}'::jsonb)
+    from jsonb_each(case when jsonb_typeof(${heartbeatRuns.contextSnapshot}) = 'object'
+      then ${heartbeatRuns.contextSnapshot} else '{}'::jsonb end) as field(key, value)
+    where field.key in (${sql.join(continuationContextKeys.map(key => sql`${key}`), sql`, `)})
+  ) end`;
+const preflightProfile = sql<Run["runnerProfileJson"]>`case
+  when ${heartbeatRuns.runnerProfileJson} is null then null else (
+    select coalesce(jsonb_object_agg(field.key, case when field.key = 'adapterDispatch'
+      then jsonb_build_object('adapterType', field.value->'adapterType') else field.value end), '{}'::jsonb)
+    from jsonb_each(case when jsonb_typeof(${heartbeatRuns.runnerProfileJson}) = 'object'
+      then ${heartbeatRuns.runnerProfileJson} else '{}'::jsonb end) as field(key, value)
+    where field.key in ('adapterDispatch', 'nativeWorkspaceSync')
+  ) end`;
+const continuationRunFields = {
+  id: heartbeatRuns.id, companyId: heartbeatRuns.companyId, agentId: heartbeatRuns.agentId,
+  status: heartbeatRuns.status, startedAt: heartbeatRuns.startedAt, finishedAt: heartbeatRuns.finishedAt,
+  createdAt: heartbeatRuns.createdAt, issueId: heartbeatRuns.issueId, nativeIssueId: heartbeatRuns.nativeIssueId,
+  nativeSessionId: heartbeatRuns.nativeSessionId, runnerInstanceId: heartbeatRuns.runnerInstanceId,
+  runtimeMode: heartbeatRuns.runtimeMode, runtimeModeResolvedAt: heartbeatRuns.runtimeModeResolvedAt,
+  errorCode: heartbeatRuns.errorCode, error: heartbeatRuns.error, resultJson: heartbeatRuns.resultJson,
+  contextSnapshot: continuationContext, runnerProfileJson: heartbeatRuns.runnerProfileJson,
+  processPid: heartbeatRuns.processPid, processGroupId: heartbeatRuns.processGroupId,
+  processStartedAt: heartbeatRuns.processStartedAt, sessionIdAfter: heartbeatRuns.sessionIdAfter,
+  controllerBootId: heartbeatRuns.controllerBootId, controllerLeaseExpiresAt: heartbeatRuns.controllerLeaseExpiresAt,
+  executionStage: heartbeatRuns.executionStage,
+};
 const terminal = ["failed", "interrupted", "timed_out", "cancelled"];
 
 export function isUserCommentContinuationReason(reason: string | null | undefined): boolean {
@@ -205,7 +240,7 @@ export async function admitExplicitNativeContinuation(input: {
     const runId = action.evidence.runId ?? action.evidence.sourceRunId;
     if (typeof runId !== "string") return blocked("source_missing", "The stopped run could not be identified. Your message is saved.");
     // Text comparison keeps malformed historical evidence a hold, not a UUID cast error.
-    let [run] = await db.select().from(heartbeatRuns).where(and(
+    let [run] = await db.select({ ...continuationRunFields, runnerProfileJson: preflightProfile }).from(heartbeatRuns).where(and(
       eq(heartbeatRuns.companyId, companyId), sql`${heartbeatRuns.id}::text = ${runId}`,
     ));
     if (!run || run.agentId !== agentId || !terminal.includes(run.status) ||
@@ -251,7 +286,7 @@ export async function admitExplicitNativeContinuation(input: {
     )).for("update");
     // Same lock order as the native claim. Re-read the run while holding both
     // locks before accepting the never-claimed startup proof.
-    const [lockedRun] = await db.select().from(heartbeatRuns).where(and(
+    const [lockedRun] = await db.select(continuationRunFields).from(heartbeatRuns).where(and(
       eq(heartbeatRuns.companyId, companyId), eq(heartbeatRuns.id, run.id),
     )).for("update");
     if (!lockedRun || lockedRun.status !== run.status || lockedRun.agentId !== run.agentId ||

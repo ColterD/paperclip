@@ -21,7 +21,8 @@ and settlement. `decisionRetentionService.deliverNotifications` remains a
 compatible delegate. Its notification callback and batch type retain their
 existing contract. The scheduler only sees the delivery operation and next
 work deadline. Claim and acknowledgement writes belong to this worker; they do
-not broadcast self-generated wakes. There is no additional table or migration.
+not broadcast self-generated wakes. No table is added. A concurrent partial index supports the pending delivery
+order on the existing outbox.
 
 The server registers the worker in enabled-heartbeat startup housekeeping and
 removes notification delivery from `runRetentionSweep`. Registration scans saved
@@ -69,7 +70,7 @@ suspension. Retention scanning and decision continuations remain separate duties
 
 ## Verification
 
-The final selection passes 54 tests: 15 real-PostgreSQL retention/delivery cases
+The original migration selection passed 54 tests: 15 real-PostgreSQL retention/delivery cases
 and 39 startup cases. Twelve new cases cover configured idle, retained delivered
 history, real enqueue, restart, exact stale-claim timing, legacy missing timestamps,
 first enqueue during drain, failed-delivery retry through drain, outer commit and
@@ -84,3 +85,43 @@ identifiers now use their company prefix; quiet checks advance the retained retr
 and await authoritative settlement. All 54 cases passed on rerun. No production
 hold, recovery deadline, or timeout was weakened. Full repository CI and fresh
 review are required before this PR is ready.
+
+
+## Review repairs: startup, claim results and backlog selection
+
+Startup regressions now exercise `startServer` itself. Enabled startup must
+register `decisionArchiveDelivery` and invoke the delivery owner; calling the
+captured heartbeat interval still performs retention reads without another
+notification delivery. Calling the registered worker invokes delivery again.
+The disabled-heartbeat case explicitly preserves the existing no-notification
+contract. An initial expanded test incorrectly expected that disabled mode to
+register the worker and failed; inspection confirmed the documented disabled
+contract, so the test now asserts it rather than enabling new background work.
+
+The real stale-claim regression first returned `notifiedAgents: 1` after the
+replacement claim prevented any settlement. The counter now increments only
+for a group that actually settles rows, while the existing timestamp fence and
+at-least-once delivery contract remain intact. Failure reset uses one timestamp
+for `lastAttemptAt` and `updatedAt`.
+
+Generated migration `0387_boring_professor_monster.sql` creates a concurrent
+partial index on `(last_attempt_at NULLS FIRST, created_at, id)` for pending rows.
+The existing top-level migration executor handles concurrent creation and
+invalid-index recovery. No history migration or existing journal entry changes;
+the generated snapshots retain the five newest versions.
+
+A real migration and query-plan check used a separate database with 50,000
+outbox rows, including 30,000 pending. The existing claim-selection query returned
+500 rows in both cases. Without the new index PostgreSQL sorted the pending
+backlog with a top-N heapsort and touched 944 shared buffers; with the index it
+used an index-only scan without sorting and touched 505 buffers. The baseline
+index removal was rolled back inside that dedicated database, and the migrated
+index was confirmed valid afterwards. These local measurements establish the
+access path, not production latency or cost savings.
+
+All 58 cases across real PostgreSQL delivery/retention, startup and the shared
+deadline worker pass. Generated snapshot drift, migration numbering/safety,
+server types and build pass. The earlier stale-counter failure and invalid
+scheduler-disabled expectation are retained above. The existing 500-row batch
+limit and thirty-second retry for remaining pending work are unchanged. Fresh
+current-head CI, Greptile and Ponytail remain required before merge.

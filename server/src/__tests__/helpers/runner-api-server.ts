@@ -60,6 +60,7 @@ export async function startRunnerApiTestServer(options: {
   const apiUrl = `http://127.0.0.1:${address.port}`;
   setupRunnerPrpWebSocketServer(http, { apiUrl });
   return {
+    databaseUrl: temporary.connectionString,
     db, root, apiUrl, storage,
     async humanSession(userId: string) {
       if (!auth) throw new Error("Enable humanSessions for this fixture");
