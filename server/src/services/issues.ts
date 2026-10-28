@@ -8070,8 +8070,8 @@ export function issueService(db: Db) {
           .where(pendingUserRequestRowCondition(companyId, userId)),
       ).as("mine_participation_sources");
       const participated = db.selectDistinct({ id: participationSources.id }).from(participationSources).as("mine_participants");
-      const candidates = db.$with("mine_candidates").as(db.select({
-        id: issues.id, updatedAt: issues.updatedAt,
+      const rows = await db.select({
+        id: issues.id,
       }).from(participated).innerJoin(issues, eq(issues.id, sql`"mine_participants"."id"`)).where(and(
         eq(issues.companyId, companyId),
         visibleIssueCondition(),
@@ -8080,21 +8080,7 @@ export function issueService(db: Db) {
         ne(issues.status, "cancelled"),
         inboxVisibleForUserCondition(companyId, userId),
         readCondition,
-      )));
-      const lastLogs = db.$with("mine_last_logs").as(db.select({
-        issueId: activityLog.entityId,
-        lastLogAt: sql<Date>`max(${activityLog.createdAt})`.as("last_log_at"),
-      }).from(activityLog).innerJoin(candidates, eq(activityLog.entityId, sql`${candidates.id}::text`)).where(and(
-        eq(activityLog.companyId, companyId), eq(activityLog.entityType, "issue"),
-        sql`not ${automaticReadRecoveryCleanupCondition()}`,
-        notInArray(activityLog.action, [...ISSUE_LOCAL_INBOX_ACTIVITY_ACTIONS]),
-      )).groupBy(activityLog.entityId));
-      const lastCommentAt = sql`(select max(${issueComments.createdAt}) from ${issueComments}
-        where ${issueComments.companyId} = ${companyId} and ${issueComments.issueId} = ${candidates.id})`;
-      const rows = await db.with(candidates, lastLogs).select({ id: candidates.id }).from(candidates)
-        .leftJoin(lastLogs, eq(lastLogs.issueId, sql`${candidates.id}::text`))
-        .orderBy(desc(sql`greatest(${candidates.updatedAt}, coalesce(${lastCommentAt}, to_timestamp(0)), coalesce(${lastLogs.lastLogAt}, to_timestamp(0)))`),
-          desc(candidates.updatedAt), desc(candidates.id)).limit(100);
+      )).orderBy(desc(issueCanonicalLastActivityAtExpr(companyId)), desc(issues.updatedAt), desc(issues.id)).limit(100);
       if (rows.length === 0) return [];
       // Keep correlated predicates in WHERE (as in the list's user stats).
       // A single-table Drizzle SELECT projection unqualifies nested columns.

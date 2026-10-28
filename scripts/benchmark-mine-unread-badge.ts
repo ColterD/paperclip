@@ -110,7 +110,19 @@ try {
     if (sampleGateDir) {
       await fs.mkdir(sampleGateDir, { recursive: true });
       const release = path.join(sampleGateDir, `${fixture.name}.release`);
-      await fs.writeFile(path.join(sampleGateDir, `${fixture.name}.ready.json`), JSON.stringify({ fixture, settings }));
+      const scoped = await issueReadSqlCondition(db, { type: "board", source: "session", userId: fixture.userId, authorizingUserId: fixture.userId });
+      const estimatedPlans = [];
+      await db.$client.unsafe("set jit = on");
+      for (const [arm, factory] of [["baseline", baseline.issueService], ["treatment", issueService]] as const) {
+        const queries: Query[] = [];
+        try { await factory(captureDb(queries, true)).unreadInboxIssueIds(fixture.companyId, fixture.userId, scoped); }
+        catch (error) { if (error !== captured) throw error; }
+        assert.equal(queries.length, 1);
+        const query = queries[0]!;
+        const [plan] = await db.$client.unsafe(`EXPLAIN (FORMAT JSON) ${query.sql}`, query.params as never[]);
+        estimatedPlans.push({ arm, plan: plan["QUERY PLAN"] });
+      }
+      await fs.writeFile(path.join(sampleGateDir, `${fixture.name}.ready.json`), JSON.stringify({ fixture, settings, estimatedPlans }));
       console.error(`Ready for paired samples: ${fixture.name}`);
       const deadline = Date.now() + 600_000;
       while (true) {
@@ -178,7 +190,7 @@ try {
   }
   const report = { baselineRevision, treatmentRevision: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
     treatmentIsBaseline, diagnostic, sourceHashes: Object.fromEntries(await Promise.all(modulePaths.map(async file => [file, createHash("sha256").update(await fs.readFile(file)).digest("hex")]))),
-    effectiveLockSha256: createHash("sha256").update(await fs.readFile("pnpm-lock.yaml")).digest("hex"), settings, setupMs, totalMs: performance.now() - started, results };
+    checkedInLockSha256: createHash("sha256").update(await fs.readFile("pnpm-lock.yaml")).digest("hex"), nodeVersion: process.version, dependencyVersions: Object.fromEntries(await Promise.all(["postgres", "drizzle-orm"].map(async name => [name, JSON.parse(await fs.readFile(`packages/db/node_modules/${name}/package.json`, "utf8")).version]))), settings, setupMs, totalMs: performance.now() - started, results };
   const json = JSON.stringify(report, null, 2);
   if (evidenceDir) { await fs.mkdir(evidenceDir, { recursive: true }); await fs.writeFile(path.join(evidenceDir, "benchmark.json"), json); }
   console.log(json);
