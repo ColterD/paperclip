@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { activityLog, agents, companies, createDb, decisionBundles, decisionEffectExecutions, decisions,
+import { activityLog, agents, companies, createDb, subscribeDatabaseWork, decisionBundles, decisionEffectExecutions, decisions,
   decisionTargetIssues, heartbeatRuns, issues } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { resolveExternalTestDatabaseUrl } from "./helpers/external-test-database.js";
@@ -10,6 +10,7 @@ import { registerDecisionExpiryWork } from "../services/decision-expiry-work.js"
 import { registerDecisionContinuationWork } from "../services/decision-continuation-work.js";
 import { createDeliveryWorkCoordinator } from "../services/delivery-work-coordinator.js";
 import { idleWorkSnapshot } from "../services/task-admission.js";
+import { DELIVERY_QUEUES } from "../services/delivery-work-notifications.js";
 
 const externalUrl = resolveExternalTestDatabaseUrl("PAPERCLIP_DECISION_EXPIRY_TEST_DATABASE_URL");
 const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTestSupport();
@@ -40,9 +41,11 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
   });
   afterEach(async () => {
     await coordinator?.stop(); coordinator = undefined;
-    vi.useRealTimers(); vi.restoreAllMocks();
+    vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs();
     await db.execute(sql`drop trigger if exists decision_expiry_fail on decisions`);
     await db.execute(sql`drop function if exists decision_expiry_fail()`);
+    await db.execute(sql`drop trigger if exists decision_expiry_audit_fail on activity_log`);
+    await db.execute(sql`drop function if exists decision_expiry_audit_fail()`);
     await db.delete(decisionEffectExecutions); await db.delete(decisionTargetIssues); await db.delete(decisions);
     await db.delete(decisionBundles); await db.delete(activityLog); await db.delete(heartbeatRuns);
     await db.delete(issues); await db.delete(agents); await db.delete(companies);
@@ -96,9 +99,73 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
     expect(await db.select().from(activityLog).where(eq(activityLog.action, "decision.expired"))).toHaveLength(1);
   });
 
+  it.each(["single", "bundle"] as const)("arms expiry without waking continuation recovery for %s creation", async mode => {
+    await start(); await quiet();
+    const events: string[] = [];
+    const unsubscribe = subscribeDatabaseWork(db, DELIVERY_QUEUES.decisionContinuation, event => { events.push(event); });
+    try {
+      const deadline = new Date(Date.now() + 120_000);
+      const row = mode === "single" ? await create(deadline) : (await service().createBundle({
+        companyId, actor: actor(), agentId, runId, title: "Bundle", summary: "Summary", decisions: [input(deadline)],
+      })).decisions[0];
+      expect(events).toEqual([]);
+      await vi.waitFor(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+        expect(coordinator!.nextWakeAt()).toBe(deadline.getTime());
+      });
+      expect(wake).not.toHaveBeenCalled();
+      await service().cancel(row.id, { actorType: "agent", actorId: agentId });
+      await quiet();
+      expect(events).toEqual(["intent", "settled"]);
+      expect(wake).toHaveBeenCalledTimes(1);
+    } finally { unsubscribe(); }
+  });
+
+  it("honors the configured expiry batch size", async () => {
+    vi.stubEnv("PAPERCLIP_DECISIONS_SWEEP_BATCH_SIZE", "2");
+    const seed = await create(); await db.delete(decisions).where(eq(decisions.id, seed.id));
+    await db.insert(decisions).values(Array.from({ length: 5 }, () => ({ ...seed, id: randomUUID(), expiresAt: new Date(Date.now() - 1000) })));
+    const recovery = service();
+    expect(await recovery.sweepTtlExpiry()).toEqual({ expired: 2 });
+    expect(await recovery.sweepTtlExpiry()).toEqual({ expired: 2 });
+    expect(await recovery.sweepTtlExpiry()).toEqual({ expired: 1 });
+    expect(wake).toHaveBeenCalledTimes(5);
+  });
+
+  it("continues a successful overdue backlog within one second instead of waiting for error retry", async () => {
+    const seed = await create(); await db.delete(decisions).where(eq(decisions.id, seed.id));
+    await db.insert(decisions).values(Array.from({ length: 101 }, () => ({ ...seed, id: randomUUID(), expiresAt: new Date(Date.now() - 1000) })));
+    await start();
+    expect(wake).toHaveBeenCalledTimes(100);
+    const next = coordinator!.nextWakeAt();
+    expect(next).not.toBeNull();
+    expect(next! - Date.now()).toBeLessThanOrEqual(1000);
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.waitFor(() => expect(wake).toHaveBeenCalledTimes(101));
+    await quiet();
+  });
+
+  it("rolls expiry back if its durable activity cannot be recorded", async () => {
+    const row = await create();
+    await db.update(decisions).set({ expiresAt: new Date(Date.now() - 1000), metadata: { ...row.metadata, retained: "unchanged" } }).where(eq(decisions.id, row.id));
+    await db.execute(sql`create function decision_expiry_audit_fail() returns trigger language plpgsql as $$ begin
+      raise exception 'expiry audit unavailable'; end $$`);
+    await db.execute(sql`create trigger decision_expiry_audit_fail before insert on activity_log
+      for each row when (NEW.action = 'decision.expired') execute function decision_expiry_audit_fail()`);
+    await expect(service().sweepTtlExpiry()).rejects.toMatchObject({ cause: { message: "expiry audit unavailable" } });
+    expect(await service().get(row.id)).toMatchObject({ status: "open", metadata: { retained: "unchanged" } });
+    expect(wake).not.toHaveBeenCalled();
+    expect(await db.select().from(activityLog).where(eq(activityLog.action, "decision.expired"))).toEqual([]);
+    await db.execute(sql`drop trigger decision_expiry_audit_fail on activity_log`);
+    expect(await service().sweepTtlExpiry()).toEqual({ expired: 1 });
+    expect(await service().get(row.id)).toMatchObject({ status: "expired", metadata: { retained: "unchanged" } });
+    expect(wake).toHaveBeenCalledTimes(1);
+    expect(await db.select().from(activityLog).where(eq(activityLog.action, "decision.expired"))).toHaveLength(1);
+  });
+
   it("reconstructs a future expiry on restart and does not expire it early", async () => {
     const row = await create(); await start();
-    expect(coordinator!.nextWakeAt()).toBe(row.expiresAt.getTime());
+    await vi.waitFor(() => expect(coordinator!.nextWakeAt()).toBe(row.expiresAt.getTime()));
     await vi.advanceTimersByTimeAsync(60_000);
     expect((await service().get(row.id))?.status).toBe("open");
     await expired(row.id); await quiet(); expect(wake).toHaveBeenCalledTimes(1);
@@ -184,12 +251,15 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
     expect(wake).not.toHaveBeenCalled(); expect(await service().nextExpiryAt()).toBeNull();
   });
 
-  it("keeps TTL expiry out of the aggregate sweep when its worker owns the duty", async () => {
+  it("does not recover stale running effects during TTL expiry", async () => {
     const row = await create();
-    await db.update(decisions).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(decisions.id, row.id));
-    expect(await service().sweepExpired(new Date(), { includeContinuations: false, includeExpiry: false })).toEqual({ expired: 0, resumed: 0 });
-    expect((await service().get(row.id))?.status).toBe("open");
-    expect(await service().sweepTtlExpiry()).toEqual({ expired: 1 }); expect(wake).toHaveBeenCalledTimes(1);
+    await db.update(decisions).set({ status: "decided", executionStatus: "running", chosenOptionId: "yes",
+      decidedByUserId: null, updatedAt: new Date(Date.now() - 120_000), expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(decisions.id, row.id));
+    expect(await service().sweepTtlExpiry()).toEqual({ expired: 0 });
+    expect(await service().get(row.id)).toMatchObject({ status: "decided", executionStatus: "running" });
+    expect(wake).not.toHaveBeenCalled();
+    expect(await service().nextExpiryAt()).toBeNull();
   });
 
   it("pages past a failed candidate and retries it without repeating completed expirations", async () => {

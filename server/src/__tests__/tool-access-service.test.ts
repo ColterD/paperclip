@@ -16,6 +16,7 @@ import {
   vi,
 } from "vitest";
 import {
+  applyPendingMigrations,
   activityLog,
   agents,
   authUsers,
@@ -923,6 +924,7 @@ describeEmbeddedPostgres("tool access service", () => {
 
   beforeAll(async () => {
     if (externalDatabaseUrl) {
+      await applyPendingMigrations(externalDatabaseUrl);
       db = createDb(externalDatabaseUrl);
       await instanceSettingsService(db).updateExperimental({ enableMemoryConnectors: true });
       return;

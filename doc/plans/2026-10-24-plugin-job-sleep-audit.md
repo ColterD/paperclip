@@ -102,3 +102,15 @@ the barrier is installed. It still holds a real database snapshot across the
 manual dispatch, verifies the active reservation and concurrency bound, and
 checks that all three jobs finish. All 33 plugin scheduling cases pass with
 this ordering. Production scheduling, assertions, and test timeouts are unchanged.
+
+
+## October 28 review repair
+
+The final retained completion transaction uses a local thirty-second PostgreSQL
+statement timeout (configurable through the internal constructor for tests). It
+bounds lock/query execution in both refresh and stop, preserves pending results
+on error and never repeats the plugin RPC to repair persistence. A two-connection
+lock regression failed before this repair, then passed. All 34 scheduler cases and
+247 cases across eleven complete affected/lifecycle suites pass at `36be0bd733`;
+server types/build pass. No schema change or new periodic activity is introduced.
+See `doc/idle-plugin-jobs.md` for the exact scope and network/process-loss limits.

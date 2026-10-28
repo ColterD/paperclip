@@ -261,6 +261,16 @@ status, known adapters, and allowlisted outcome/check/server codes. The case
 report renders these fields explicitly; older results without the receipt remain
 valid. This diagnostic does not change the journey grade or qualify a live run.
 
+When the canonical first-task journey fails `onboarding_work_before_acceptance`,
+`productJourney.onboardingPreAcceptance` retains the failed checkpoint and every
+observed guard violation: unexpected task set, existing attachment, non-planning
+document, or first task already Done. The closed version-1 receipt contains only
+counts, whether the first task matches the canonical parent, and closed first-task
+and canonical-parent statuses. Reports validate and display these observations;
+they do not infer a product cause. Only the failing boundary is retained, without
+task/document IDs, document keys, text, or bodies. Historical results may omit the
+receipt. The original error, failed grade, and dependent blocked outcomes remain.
+
 ## Live provider connection journeys
 
 See [PROVIDER-CONNECTIONS.md](PROVIDER-CONNECTIONS.md) for the explicit-only
@@ -1262,9 +1272,17 @@ intentionally uncommitted workspace patch while keeping every target job on one
 identical dependency resolution. The shared-build job compiles the selected
 campaign's TypeScript outputs and native binaries once, then each paid cell
 verifies and extracts the immutable bundle. Remote native cells similarly reuse
-one verified provider pack. Report
-sanitization and AWS history publication do not consume the target lockfile;
-they explicitly check out and install from the trusted workflow commit. The
+one verified provider pack. Report sanitization and AWS history publication
+explicitly check out the trusted workflow commit. The report applies the
+reviewed, hash-pinned `report-lock.patch` to the committed lock before its
+frozen install. It does not resolve registry versions at run time or accept a
+worker target lock. The patch changes existing package patch identities and
+links the already declared yaml dependency; existing package tarball integrity entries
+stay unchanged. The correction adds exactly yaml@2.9.1 with pinned integrity. The
+trusted authorization job rejects unknown locks before paid work. Manual history
+publication uses the same reviewed correction. Qualification image builds apply
+it only to a target equal to the workflow revision; other targets keep their own
+lock. Unknown lock contents fail before installation. The
 workflow definition, runner-group permission, and protected-environment
 deployment still come from the default branch. Do not select the target branch
 in GitHub's **Use workflow from** control.
@@ -2983,3 +3001,22 @@ quality or survival after an abrupt worker kill.
 pnpm test:e2e:runner -- --list --suite feedback-persistence
 pnpm test:e2e:runner -- --id feedback-persistence.runner-acpx-claude.local.complaint-and-suggestion --max-automatic-retries 0 --max-parallel 1
 ```
+
+
+### Model-spend readiness and operating reconciliation
+
+A reviewed operating allowance can opt into `accountingReadiness: "model_requests"`.
+This policy requires at least one model request and complete final model-cost
+receipts before scheduled qualification succeeds. Missing or conflicting model
+receipts, active requests, failed product/cleanup/trace/feedback checks, and a
+campaign commitment above its limit still fail qualification. The gateway still
+reserves every request before forwarding it. Attempts, deadlines and concurrency
+remain bounded.
+
+The report shows the model subtotal and model-readiness status separately from
+full accounting status. Unknown operating charges remain unknown. Operating
+reservations stay in the same campaign admission allowance until reconciled;
+they are not reported as charges or converted into reviewed lifecycle bounds.
+This mode therefore does not certify a full-lifecycle operating-cost ceiling.
+Omitting the policy preserves the stricter full-accounting gate. Historical
+journals and their holds are not rewritten by changing future campaign policy.

@@ -3,6 +3,7 @@ import { resolveExternalTestDatabaseUrl } from "./helpers/external-test-database
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  applyPendingMigrations,
   activityLog,
   companies,
   connectionEventDeliveries,
@@ -33,6 +34,7 @@ describeEmbeddedPostgres("GitHub connection event delivery", () => {
 
   beforeAll(async () => {
     if (!externalTestDatabaseUrl) tempDb = await startEmbeddedPostgresTestDatabase("paperclip-github-events-");
+    if (externalTestDatabaseUrl) await applyPendingMigrations(externalTestDatabaseUrl);
     db = createDb(externalTestDatabaseUrl ?? tempDb!.connectionString);
   }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
 

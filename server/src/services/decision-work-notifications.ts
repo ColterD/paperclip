@@ -1,6 +1,10 @@
 import type { Db } from "@paperclipai/db";
 import { DELIVERY_QUEUES, notifyDeliveryWork } from "./delivery-work-notifications.js";
 
+export function notifyDecisionCreated(transaction: object) {
+  return notifyDeliveryWork(transaction, DELIVERY_QUEUES.decisionExpiry);
+}
+
 export async function notifyDecisionChange(transaction: object) {
   await notifyDeliveryWork(transaction, DELIVERY_QUEUES.decisionContinuation);
   await notifyDeliveryWork(transaction, DELIVERY_QUEUES.decisionExpiry);

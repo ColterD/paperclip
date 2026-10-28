@@ -1,3 +1,4 @@
+import { approvalExecutionIssueCondition, firstApprovalIssueId } from "./approval-visibility.js";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, notInArray, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
@@ -1190,6 +1191,7 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
         const pendingApprovals = await db
           .select({
             id: approvals.id,
+            linkedIssueId: firstApprovalIssueId(),
             type: approvals.type,
             status: approvals.status,
             requestedByAgentId: approvals.requestedByAgentId,
@@ -1199,33 +1201,18 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
             updatedAt: approvals.updatedAt,
           })
           .from(approvals)
-          .where(and(eq(approvals.companyId, companyId), eq(approvals.status, "pending")))
+          .where(and(eq(approvals.companyId, companyId), eq(approvals.status, "pending"), approvalExecutionIssueCondition()))
           .orderBy(desc(approvals.updatedAt), desc(approvals.id));
 
-        const pendingApprovalIds = pendingApprovals.map((approval) => approval.id);
-        const approvalIssueRows = pendingApprovalIds.length > 0
-          ? await db
-            .select({ approvalId: issueApprovals.approvalId, issueId: issueApprovals.issueId })
-            .from(issueApprovals)
-            .where(and(
-              eq(issueApprovals.companyId, companyId),
-              inArray(issueApprovals.approvalId, pendingApprovalIds),
-            ))
-            .orderBy(asc(issueApprovals.approvalId), asc(issueApprovals.issueId))
-          : [];
-        const approvalIssueMap = new Map<string, string>();
-        for (const row of approvalIssueRows) {
-          if (!approvalIssueMap.has(row.approvalId)) approvalIssueMap.set(row.approvalId, row.issueId);
-        }
         const readableApprovalIssues = await issueSummaryMap(
           db,
           companyId,
-          approvalIssueRows.map((row) => row.issueId),
+          pendingApprovals.map((row) => row.linkedIssueId),
           readCondition,
         );
 
         for (const approval of pendingApprovals) {
-          const linkedIssueId = approvalIssueMap.get(approval.id) ?? null;
+          const linkedIssueId = approval.linkedIssueId ?? null;
           if (linkedIssueId && !readableApprovalIssues.has(linkedIssueId)) continue;
           const dedupKey = `approval:${approval.id}`;
           const title = approvalTitle(approval.type, approval.payload);
@@ -1244,7 +1231,7 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
                 type: approval.type,
                 requestedByAgentId: approval.requestedByAgentId,
                 requestedByUserId: approval.requestedByUserId,
-                issueId: approvalIssueMap.get(approval.id) ?? null,
+                issueId: approval.linkedIssueId ?? null,
               },
             },
             whyNow: "Approval is pending a board decision.",

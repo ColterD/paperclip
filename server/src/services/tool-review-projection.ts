@@ -21,34 +21,57 @@ export function toolReviewProjectionService(db: Db, reflect: (input: {
       cursor ? gt(toolActionRequests.id, cursor) : undefined))
     .orderBy(asc(toolActionRequests.id));
 
+  const continuations = new Map<string, string>();
   return {
-    companies(companyId?: string) {
-      return db.select({ companyId: toolActionRequests.companyId }).from(toolActionRequests)
+    async companies(companyId?: string) {
+      const rows = await db.select({ companyId: toolActionRequests.companyId }).from(toolActionRequests)
         .innerJoin(issueThreadInteractions, eq(issueThreadInteractions.id, toolActionRequests.interactionId))
         .innerJoin(toolInvocations, eq(toolInvocations.id, toolActionRequests.invocationId))
         .where(and(mismatch, companyId ? eq(toolActionRequests.companyId, companyId) : undefined))
         .groupBy(toolActionRequests.companyId);
+      const pending = new Set(rows.map(row => row.companyId));
+      for (const scope of continuations.keys()) {
+        if (companyId && scope !== companyId) continue;
+        if (scope === "*" ? rows.length === 0 : !pending.has(scope)) continuations.delete(scope);
+      }
+      return rows;
     },
-    async sweep(companyId?: string) {
-      let cursor: string | undefined;
-      let scanned = 0;
+    async sweep(companyId?: string, options: {
+      maxRows?: number;
+      signal?: AbortSignal;
+      shouldContinue?: () => boolean;
+    } = {}) {
+      const maxRows = options.maxRows ?? Infinity;
+      const scope = companyId ?? "*";
+      let cursor = maxRows === Infinity ? undefined : continuations.get(scope);
+      const resumed = cursor !== undefined;
+      let scanned = 0, completed = false;
+      const canContinue = () => !options.signal?.aborted && (options.shouldContinue?.() ?? true);
       const failures: unknown[] = [];
-      for (;;) {
-        const rows = await candidates(companyId, cursor).limit(100);
+      while (scanned < maxRows && canContinue()) {
+        const pageSize = Math.min(100, maxRows - scanned);
+        const rows = await candidates(companyId, cursor).limit(pageSize);
         for (const { request, invocation } of rows) {
+          if (!canContinue()) break;
           try {
             await reflect({ actionRequestId: request.id,
               status: request.status as "executed" | "failed" | "expired" | "cancelled",
               errorCode: invocation.errorCode, errorMessage: invocation.errorMessage,
               resultSummary: invocation.resultSummary?.summary ?? null });
           } catch (error) { failures.push(error); }
+          scanned++;
+          cursor = request.id;
         }
-        scanned += rows.length;
-        if (rows.length < 100) break;
-        cursor = rows[rows.length - 1].request.id;
+        if (!canContinue()) break;
+        if (rows.length < pageSize) { completed = true; break; }
+      }
+      if (maxRows !== Infinity) {
+        if (completed) continuations.delete(scope);
+        else if (cursor) continuations.set(scope, cursor);
       }
       if (failures.length) throw new AggregateError(failures, "Tool review projection repair failed");
-      return { scanned, retry: (await candidates(companyId).limit(1)).length > 0 };
+      return { scanned, truncated: !completed,
+        retry: !completed || ((scanned > 0 || resumed) && (await candidates(companyId).limit(1)).length > 0) };
     },
   };
 }

@@ -93,3 +93,72 @@ are relevant consumers. Track final results and any failures in the PR and the
 The Cloud sleep guards are unchanged. An in-process deadline cannot wake stopped
 compute, and this approval deadline has not been added to Cloud's durable wake
 contract. This proves only the named worker's quiet/reactivation behavior.
+
+
+## Initial review repair verification
+
+The feed and retention worker now share `approval-visibility.ts` for the first
+linked issue and its execution visibility. The feed still applies actor-specific
+read access before including a linked approval. Both link orders are covered:
+hidden first/visible later stays excluded; visible first/hidden later stays
+eligible. The worker's current-state recheck remains under the approval row lock.
+
+Manual keep, archive and revive materialize an unseen approval on demand inside
+the existing retention write transaction. They lock the company-scoped approval
+row in the same order as automatic archival, read its real activity timestamp,
+and use the existing versioned `syncItems` operation. Missing or unauthorized
+sources retain their existing rejection; other source kinds are unchanged. This
+adds no eager startup materialization or recurring scan.
+
+Four real regressions failed before repair: unseen young keep/archive/revive
+returned 404, and the atomic materialization test could not reach the keep write.
+All pass after repair. A failing keep update rolls back the inserted retention
+row and emits no audit; the next successful keep persists exactly one audit.
+All 26 lifecycle cases pass, including the existing timestamp-precision failure
+rotation. The complete eight-suite consumer selection passes 311 cases at
+`063b61584d`: approval worker/service, attention, retention, budget, tool gateway,
+startup and scoped deadlines. Server typecheck and production build pass.
+
+Normal parent reconciliation preserves every historical parent SQL file and all
+390 parent journal entries. The approval index is regenerated through the normal
+workflow as concurrent/idempotent `0392_small_frightful_four.sql`; five generated
+snapshots remain (0388–0392). Schema drift, safety/numbering and actual fresh
+migration apply/replay on five isolated PostgreSQL databases pass. Earlier
+transaction-stub, budget-import, query-probe and CI failures remain recorded in
+the stack ledger. Fresh current-head CI and both reviews are required.
+
+
+## Wake amplification repair
+
+Ordinary creation, links, revision requests and resubmission signal retention
+only. Tool-review queues are notified by the actual terminal transition owners:
+approve/reject in approval resolution, and cancel in the approval service. These
+are the same terminal transitions that notified tool reviews before this PR.
+Cancellation must remain a producer because it settles parked tool actions as
+unavailable. No extra wrapper or scope argument is threaded through those calls.
+
+The aggregate retention worker now coalesces sequential notifications for thirty
+seconds after a successful reconciliation. This is a single instance-wide read
+budget, stricter than granting each company an independent thirty-second budget,
+and matches the former default maintenance cadence. Known business deadlines
+still preempt the coalescing window. The window schedules no work on its own;
+without a notification or saved deadline the worker remains quiet. Newly changed
+eligibility can wait up to that window, as under the old default maintenance.
+
+Three new real regressions failed before repair: approve and reject cases
+observed unwanted tool-review signals from ordinary mutations, and four
+sequential tenant writes caused eight global reads rather than one two-read
+reconciliation. Terminal approve/reject/cancel signals are now tested explicitly.
+With another company's pending approval present, sequential writes cause no extra
+SQL within the window and one reconciliation when the window ends.
+
+The first coalescing fixture incorrectly expected the pending-work hold to clear
+before the requested reconciliation; it now lets the deferred wake remain owed
+and measures SQL directly. The first broad repair passed 313 cases and failed
+the existing parked-review cancellation case. Restoring the original cancel
+producer fixed that regression without weakening its outcome assertion. All
+315 cases in eight full suites now pass at `dd844f4e8c`, including 30 approval
+worker cases; server types/build pass. The earlier security check at `5991f257bb`
+was action-required and Greptile reported service error reference
+`8fb1835c-e564-476b-b802-d5be164ea915`. Neither is claimed as passing; the repaired
+head requires fresh security, CI and both bot reviews.

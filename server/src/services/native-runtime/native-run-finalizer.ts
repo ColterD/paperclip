@@ -1,4 +1,5 @@
 import { pendingNativeGovernance } from "./native-governance.js";
+import { onboardingFirstTaskCompletionAllowed } from "../onboarding-first-task-admission.js";
 import { notifyExecutionRunWork } from "../execution-control-notifications.js";
 import { reconcileMuseNativeTerminalRun } from "./muse-terminal-reconciliation.js";
 import { assertNativeCaseHandoffResult } from "./native-case-handoff.js";
@@ -1429,7 +1430,7 @@ export async function finalizeNativeRun(input: {
       authoritativeIssue.executionRunId !== run.id && authoritativeIssue.checkoutRunId !== run.id
       ? await readNativeMonitorDelivery(input.db, { companyId: run.companyId, issueId: coordinator.issueId, runId: run.id })
       : null;
-    const proposedDecision = resolveNativeFinalizerStatus({
+    let proposedDecision = resolveNativeFinalizerStatus({
       caseHandoffAuthorized: Boolean(await assertNativeCaseHandoffResult(input.db, run.id, authoritativeIssue.id, result)),
       monitorWaitDispatched: monitorDelivery !== null,
       monitorWaitPreserved: preservedMonitorWait !== null,
@@ -1471,6 +1472,14 @@ export async function finalizeNativeRun(input: {
       agentId: run.agentId,
       priorIssueStatus: authoritativeStatus(authoritativeIssue.status),
     });
+    // Already accepted results still require the server-owned first-task decision.
+    // Keep the task open without inventing an interaction or rerunning the work.
+    if (proposedDecision.statusAction === "done" && !await onboardingFirstTaskCompletionAllowed(input.db, {
+      companyId: run.companyId, issueId: authoritativeIssue.id, runId: run.id,
+    })) {
+      proposedDecision = { ...proposedDecision, statusAction: "in_review", toStatus: "in_review",
+        reasonCode: "onboarding_first_task_decision_required", unblockDescriptor: null, effects: [{ kind: "release_checkout" }] };
+    }
     const decision = conversationNativeDecision({
       conversation: isConversation(authoritativeIssue), terminalState,
       workspaceFinalizeStatus: input.workspaceFinalizeStatus, hasGovernanceGate: !!governanceGate,

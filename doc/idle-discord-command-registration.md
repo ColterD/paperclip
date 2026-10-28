@@ -165,3 +165,26 @@ cases pass. Server typecheck/build pass. The health parent is propagated through
 company cleanup, retaining both notification paths in the three overlapping
 producer sites. The six prerequisite cleanup cases pass. Remote acceptance of
 the new Discord head remains required.
+
+## Updated parent acceptance, October 27
+
+A normal merge at `5b50224785252fe49a4501d9695063cf9621e528` includes
+company-cleanup parent #17561 at `21be75d2b0` and health #17554 at `8c1d293d1a`.
+Only the original 26 Discord-owned paths differ from that parent. The shared
+producer sites preserve both health and command notifications; no provider
+behavior, schema, or coordinator contract changes in this integration.
+
+The four complete command-store, company-batching, coordinator, and startup
+suites pass 119 cases. Eight real Discord automatic-registration and Slack
+held-transaction cases pass separately; 1,581 other chat integration cases are
+not counted as executed. These 127 distinct targeted cases use separate isolated
+PostgreSQL 17 databases cloned from the migrated health test schema, not an
+unmigrated-database fixture proof. The first name filter selected only the Slack
+case; the corrected verified group selector then executed all eight cases.
+Server typecheck and build pass. Startup tests still emit the recorded
+SIGINT/SIGTERM listener-count warnings without assertion failures.
+
+The earlier failed baselines and remote CI history above remain evidence for
+their stated revisions. Fresh current-head reviews and all CI are required, and
+both prerequisites must land before this child can merge into master. This does
+not establish host suspension, external Cloud alarms, or provider cost savings.

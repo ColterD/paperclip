@@ -423,7 +423,7 @@ export function projectRoutes(db: Db) {
         // The receipt lock can wait too. Keep current authority behind every
         // admission wait and ahead of both receipt replay and project creation.
         await withExternalExecutionAdmission(tx, actorCompanyId, agentId, runId, async () => {
-          const current = await projectToolContext(tx as unknown as Db, museActor, true);
+          const current = await projectToolContext(tx as unknown as Db, museActor, true, "Project", { includeExecutionInput: true });
           try {
             const execution = parseNativeExecutionInput(current.run.runnerProfileJson?.nativeExecutionInput);
             const broker = museExternalAgents(db);

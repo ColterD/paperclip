@@ -35,6 +35,7 @@ import {
 } from "vitest";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import {
+  applyPendingMigrations,
   createDb,
   companies,
   agents,
@@ -88,6 +89,7 @@ describe("AgentMail durable email pipeline", () => {
       "master.key",
     );
     if (!externalTestDatabaseUrl) database = await startEmbeddedPostgresTestDatabase("paperclip-email-");
+    if (externalTestDatabaseUrl) await applyPendingMigrations(externalTestDatabaseUrl);
     db = createDb(externalTestDatabaseUrl ?? database!.connectionString);
     await instanceSettingsService(db).updateExperimental({
       enableChatConnectors: false,

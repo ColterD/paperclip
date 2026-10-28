@@ -513,9 +513,24 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: runner-protocol-runtime-${{ github.run_id }}-${{ github.run_attempt }}
+          include-hidden-files: true
           path: ${{ runner.temp }}/runner-protocol-runtime/
           retention-days: 30
           if-no-files-found: error
+
+      - name: Download controller artifact for a credential-free transport test
+        if: needs.authorize.outputs.accounting_mode == 'controlled'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ steps.upload.outputs.artifact-id }}
+          path: ${{ runner.temp }}/runner-controller-roundtrip
+
+      - name: Verify the real uploaded controller inventory before private preparation
+        if: needs.authorize.outputs.accounting_mode == 'controlled'
+        env:
+          PAPERCLIP_CONTROLLER_TRANSPORT_DIRECTORY: ${{ runner.temp }}/runner-controller-roundtrip
+          PAPERCLIP_CONTROLLER_RECEIPT_SHA256: ${{ steps.build.outputs.runtime_receipt_sha256 }}
+        run: node --test .github/tests/runner-controller-artifact-transport.test.mjs
 
   prepare_controller:
     name: Prepare one shared cost and trace manifest
