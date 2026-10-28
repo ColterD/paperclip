@@ -46,10 +46,10 @@ const support = external ? { supported: true } : await getEmbeddedPostgresTestSu
     expect(errors).toEqual([]);
   });
   afterAll(async () => { await db?.$client.end({ timeout: 1 }); await temporary?.cleanup(); });
-  async function start(maxConcurrentJobs = 10) {
+  async function start(maxConcurrentJobs = 10, settlementTimeoutMs = 30_000) {
     const workerManager = { isRunning: () => available, call: rpc, getWorker: () => events } as unknown as PluginWorkerManager;
     scheduler = createPluginJobScheduler({ db, jobStore: pluginJobStore(db), workerManager,
-      isBackgroundWorkEnabled: () => !draining, maxConcurrentJobs });
+      isBackgroundWorkEnabled: () => !draining, maxConcurrentJobs, settlementTimeoutMs });
     coordinator = createDeliveryWorkCoordinator({ owner: db, canRun: () => !draining, canReconcile: () => true,
       onError: error => errors.push(error) });
     await scheduler.start(coordinator);
@@ -436,6 +436,42 @@ const support = external ? { supported: true } : await getEmbeddedPostgresTestSu
     await vi.waitFor(() => expect(rpc).toHaveBeenCalledTimes(1));
     release(); await completed(); expect(attempts.filter(result => result.status === "fulfilled")).toHaveLength(1);
   });
+  it("bounds a locked completion write through shutdown and retries without rerunning the plugin", async () => {
+    const row = await job("manual", ""); await start(10, 250); await quiet();
+    let finishRpc!: () => void;
+    rpc.mockImplementation(() => new Promise<void>(resolve => { finishRpc = resolve; }));
+    const { runId } = await scheduler!.triggerJob(row.id);
+    await vi.waitFor(() => expect(rpc).toHaveBeenCalledOnce());
+    let unlock!: () => void, acquired!: () => void;
+    const gate = new Promise<void>(resolve => { unlock = resolve; });
+    const admitted = new Promise<void>(resolve => { acquired = resolve; });
+    const holder = db.transaction(async tx => {
+      await tx.select().from(pluginJobRuns).where(eq(pluginJobRuns.id, runId)).for("update");
+      acquired(); await gate;
+    });
+    await admitted;
+    let stop: Promise<void> | undefined, stopped = false, failure: unknown;
+    try {
+      draining = true; finishRpc();
+      await vi.waitFor(async () => {
+        const waits = await db.execute(sql`select 1 from pg_stat_activity where datname = current_database()
+          and pid <> pg_backend_pid() and wait_event_type = 'Lock' and query like 'update "plugin_job_runs"%'`);
+        expect(waits.length).toBe(1);
+      });
+      stop = scheduler!.stop().then(() => { stopped = true; }, error => { failure = error; stopped = true; });
+      await vi.waitFor(() => expect(stopped).toBe(true), { timeout: 5000 });
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect((failure as AggregateError).errors).toEqual([expect.objectContaining({ cause: expect.objectContaining({ code: "57014" }) })]);
+      expect(await runs()).toMatchObject([{ id: runId, status: "running" }]);
+    } finally {
+      unlock(); await holder; await stop;
+    }
+    await scheduler!.stop();
+    expect(await runs()).toMatchObject([{ id: runId, status: "succeeded" }]);
+    expect(rpc).toHaveBeenCalledOnce();
+    expect(errors).toEqual([]);
+  });
+
   it("deleting the last job cancels its future deadline", async () => {
     await job(); await start(); await settled(); await pluginJobStore(db).deleteAllJobs(pluginId); await quiet();
   });
