@@ -112,7 +112,7 @@ required before readiness.
 ## Current review repair and verification
 
 The duplicate approval/join archive loop is now one `createDecisionRetentionSweep`
-implementation. Each owner supplies its candidate page, locked current-state
+implementation. Each owner supplies its candidate ordering boundary, page, locked current-state
 lookup and next deadline. This keeps eligibility, company/invite joins and
 source-row locks with their owner while sharing cursor/error/retention behavior.
 The existing 100-row budget, PostgreSQL text cursor and failure rotation remain.
@@ -151,3 +151,33 @@ unchanged; five generated snapshots remain (0389–0393). Migration safety/numbe
 schema drift and actual apply/replay on six isolated PostgreSQL fixtures pass.
 Earlier setup, timing, mutation and CI failures remain recorded here and in the
 stack ledger. Fresh final-head CI, security and both 5/5 reviews remain required.
+
+
+## Retry progress under continuing arrivals
+
+Each scan cycle saves the final due `(updated_at, id)` tuple, at full database
+precision. Its pages stop at that boundary. Later due rows cannot keep extending
+the cycle and postpone failed rows forever. The cursor still advances past an
+individual failure, so one bad request—or an entire failed page—does not block
+later healthy rows. Once that finite cycle ends, the next cycle revisits failures.
+There is no new durable queue or per-row retry registry. Restart reconstructs
+eligibility from existing rows.
+
+Two real PostgreSQL regressions failed before this repair: continued newer overdue
+arrivals left a recovered approval and join request behind the cursor. Both now
+archive in the next cycle. All 55 worker cases pass, including the existing
+100-failure-page progress and microsecond-cursor cases. The nine-suite run passed
+341 cases but failed the attention suite's cleanup hook after its 16,400-run case:
+`delete from heartbeat_runs` exceeded thirty seconds. After vacuum/analyze of only
+the disposable attention fixture, all 31 attention cases pass without code or
+timeout changes. The other eight suites passed 311 cases in the original run;
+342 distinct cases pass across those complete-suite executions. This demonstrates
+recovery, not a proven explanation of the cleanup slowdown. Server typecheck and
+production build pass at `df1815fbba`; the subsequent master integration has an
+identical complete source tree.
+
+Earlier CI at `df1d4d0` also failed the unchanged decision-expiry restart test:
+its earliest wake was a thirty-second retry rather than the saved expiry. The
+complete unchanged expiry suite passes all twenty cases locally. Its CI timing
+cause remains unproven; it is not labeled infrastructure or silently discarded.
+Fresh final-head CI and reviews must pass before merging.
