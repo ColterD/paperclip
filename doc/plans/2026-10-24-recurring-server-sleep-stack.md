@@ -15,8 +15,8 @@ Do not mark an item done from a timer removal or a green check alone.
 | 01 | Custom-image setup expiry | Session writes, existing expiry, startup/retry/drain | [#17443](https://github.com/paperclipai/paperclip/pull/17443), merged after CI and passing reviews |
 | 02 | Remaining chat maintenance | Provider runtime discovery; voice reconciliation; milestones; wake notices; interaction continuations; terminal confirmations; GitHub recovery; Teams maintenance, separately by owner | Pending |
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
-| 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Approval retention implemented in slice 14; current review/CI pending; other source retention pending; archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged after exact-head 5/5 reviews and passing current CI |
-| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479) merged; effects [#17482](https://github.com/paperclipai/paperclip/pull/17482), and targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) await current-head review/CI gates |
+| 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Approval retention implemented in slice 14; final review/CI pending; other source retention pending; archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged after exact-head 5/5 reviews and passing current CI |
+| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479) merged; effects [#17482](https://github.com/paperclipai/paperclip/pull/17482) merged; targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) merged |
 
 
 
@@ -32,7 +32,7 @@ Do not mark an item done from a timer removal or a green check alone.
 | 14 | Skill-version retention and native-harness backup expiration | Separate retention owners and existing retention guarantees | Pending |
 | 15 | Automatic database backups | Shared scheduling, actual backup deadlines, existing checkpoint contract | Pending |
 | 16 | Aggregate maintenance tick | Retire enabled and disabled branches after all constituent owners migrate | Pending |
-| 17 | Grok routine dispatch | Committed reservations and feature changes; prepared-only recovery | [#17490](https://github.com/paperclipai/paperclip/pull/17490), all checks passed, Greptile 5/5 at `706beb01f2` |
+| 17 | Grok routine dispatch | Committed reservations and feature changes; prepared-only recovery | [#17490](https://github.com/paperclipai/paperclip/pull/17490) merged after exact-head 5/5 reviews and passing CI |
 | 18 | Abandoned import transfer spools | Creation/completion events, existing retention deadline, startup recovery | Pending; explicitly retained from the remaining-blocker checklist |
 
 ## Stack and verification contract
@@ -764,6 +764,15 @@ the earlier manual-caller compatibility claim. Both creation signals remain:
 expiry-only creation and scoped target invalidation. Fresh head gates required.
 
 
+Slice 11 merged at `c304273b75` → `e9e84bb8a1` after exact-head Greptile/Ponytail
+5/5 and all 58 checks passed or were neutral/skipped. Slice 12 normally merges
+that landed dependency and preserves four independent Runner E2E accounting
+files. All runtime and acceptance test sources are byte-identical to its tested
+`85ce6545bf` tree (248 cases, server types/build). Fresh final-head CI and reviews
+remain required after retargeting to master.
+
+
+
 ## Slice 13: Grok routine dispatch
 
 The one-second idle scan is replaced with a shared-coordinator worker. The existing
@@ -790,6 +799,17 @@ cases across nine complete dispatch/qualification/startup/deadline/settings
 suites, server types/build, schema drift, migration safety and fresh apply/replay
 pass. Prior browser fixture-cleanup failure evidence remains in its owning audit.
 Fresh current-head CI and Greptile/Ponytail are required before merge.
+
+
+Slice 12 merged `e6dff4b06f` → `8dfed893d8` after exact-head Greptile/Ponytail 5/5
+and all 58 checks passed or were neutral/skipped. One failed-job retry passed;
+the original CLI startup/ZIP timeouts and local startup limitation remain in its
+PR evidence. Slice 13 normally integrates that landed dependency and four
+independent Runner E2E accounting files. All runtime and acceptance sources match
+its tested/reviewed `679f523d78` tree; the 273-case, type/build and migration
+receipts retain their original revisions. Migration 0391 and all parent journal
+entries are unchanged. Fresh final-head CI and reviews required against master.
+
 
 ## Next owner audit: decision retention
 
@@ -999,6 +1019,15 @@ producer (313 pass/1 fail); it is restored. All 315 cases in eight complete suit
 including 30 worker cases, and server types/build pass at `dd844f4e8c`. Prior
 coalescing-fixture, security and Greptile service failures remain in the owning
 audit. Fresh exact-head checks and reviews are required on publication.
+
+
+Slice 13 merged `15cddfcb0c` → `2adcde162e` after exact-head Greptile/Ponytail
+5/5 and all 58 check contexts passed or were neutral/skipped. Slice 14 normally
+integrates that landed dependency, preserving four independent Runner E2E
+accounting files. Its entire runtime and acceptance sources match the tested
+and reviewed `3efda33812` tree (315 cases, server types/build). Migration 0392
+and the parent journal prefix are unchanged. Fresh final-head CI/reviews are
+required against master. The abandoned-import-spool inventory duty remains.
 
 Latest slice-14 head is `a29ce265b0c00678ada3f29f533d79f80fe25654`.
 The precision finding was replied to (4368650634) and its thread resolved.
