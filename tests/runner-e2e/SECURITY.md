@@ -28,6 +28,16 @@ Unknown codes become `unrecognized`; raw bodies, messages, URLs, headers, and
 browser errors are excluded. Reports validate the receipt before rendering its
 explicit fields, and historical results may omit it.
 
+The optional `onboardingPreAcceptance` receipt captures only a failing first-task
+acceptance guard. Its closed version-1 fields are a known checkpoint, up to four
+distinct guard-violation codes, nonnegative integer task/attachment/document
+counts, a canonical-parent match boolean, and closed first-task/canonical-parent
+statuses (`missing` and `unknown` remain explicit). It excludes all identifiers,
+task text, document keys and bodies, filenames, URLs, credentials, and raw API
+responses. Validation rejects extra or inconsistent fields before report use;
+older results may omit the receipt. It preserves the original failure grade and
+does not attribute a product cause or authorize acceptance.
+
 ## Attended connection authentication
 
 See [PROVIDER-CONNECTIONS.md](PROVIDER-CONNECTIONS.md) for the explicit-only

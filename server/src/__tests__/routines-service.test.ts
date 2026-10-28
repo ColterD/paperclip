@@ -2172,7 +2172,7 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     const events: string[] = [];
     const unsubscribe = subscribeDatabaseWork(db, DELIVERY_QUEUES.decisionTargets, event => { events.push(event); });
     const run = await svc.runRoutine(routine.id, { source: "manual" }).finally(unsubscribe);
-    expect(events).toEqual(["intent", "settled"]);
+    expect(events).toEqual([]);
 
     expect(run.status).toBe("failed");
     expect(run.failureReason).toContain("queue unavailable");

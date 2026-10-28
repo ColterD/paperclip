@@ -15,6 +15,7 @@ export function registerToolConnectionHealthWork(
   const dirty = new Set<string>(["*"]);
   const deadlines = new Map<string, ConnectionHealthDeadline>();
   const failures = new Map<string, { count: number; retryAt: number }>();
+  const refreshFailures = new Map<string, { scope: HealthScope; retryAt: number }>();
   const matches = (entry: ConnectionHealthDeadline, scope: HealthScope) =>
     (scope.companyId === undefined || entry.companyId === scope.companyId)
     && (scope.connectionId === undefined || entry.id === scope.connectionId)
@@ -26,9 +27,14 @@ export function registerToolConnectionHealthWork(
     for (const hint of hints ?? ["*"]) dirty.add(hint);
   }
   function next() {
-    let result: number | null = dirty.size ? earliest : null;
+    let result: number | null = null;
+    for (const scope of dirty) {
+      const at = Math.max(earliest, refreshFailures.get(scope)?.retryAt ?? 0);
+      result = result === null ? at : Math.min(result, at);
+    }
     for (const entry of deadlines.values()) {
-      const at = Math.max(earliest, entry.dueAt, failures.get(entry.id)?.retryAt ?? 0);
+      let at = Math.max(earliest, entry.dueAt, failures.get(entry.id)?.retryAt ?? 0);
+      for (const failure of refreshFailures.values()) if (matches(entry, failure.scope)) at = Math.max(at, failure.retryAt);
       result = result === null ? at : Math.min(result, at);
     }
     return result;
@@ -50,13 +56,21 @@ export function registerToolConnectionHealthWork(
         let target: HealthScope | undefined;
         try {
           target = healthScope(scope);
+          if ((refreshFailures.get(scope)?.retryAt ?? 0) > Date.now()) {
+            dirty.add(scope); unavailable.push(target); continue;
+          }
           const rows = await service.load(target.companyId, target.connectionId, target.applicationId, signal);
           if (target.connectionId) {
             const current = deadlines.get(target.connectionId);
             if (current && matches(current, target)) deadlines.delete(current.id);
           } else for (const entry of deadlines.values()) if (matches(entry, target)) deadlines.delete(entry.id);
           for (const entry of rows) deadlines.set(entry.id, entry);
-        } catch (error) { dirty.add(target ? scope : "*"); unavailable.push(target ?? {}); errors.push(error); }
+          if (scope === "*") refreshFailures.clear(); else refreshFailures.delete(scope);
+        } catch (error) {
+          const retryScope = target ? scope : "*";
+          refreshFailures.set(retryScope, { scope: target ?? {}, retryAt: Date.now() + retryMs });
+          dirty.add(retryScope); unavailable.push(target ?? {}); errors.push(error);
+        }
       }
       for (const id of failures.keys()) {
         const current = deadlines.get(id);

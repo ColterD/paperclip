@@ -54,6 +54,24 @@ export async function releaseToolApproval(db: Db, claim: ToolApprovalClaim) {
   });
 }
 
+export async function bindVerifiedToolApprovalArguments(db: Db, claim: ToolApprovalClaim, hashes: { preview: string; verified: string }) {
+  return db.transaction(async tx => {
+    const [invocation] = await tx.select().from(toolInvocations)
+      .where(eq(toolInvocations.id, claim.invocationId)).for("update");
+    const [request] = await tx.select().from(toolActionRequests)
+      .where(and(eq(toolActionRequests.id, claim.actionRequestId),
+        eq(toolActionRequests.invocationId, claim.invocationId))).for("update");
+    if (invocation?.status !== "awaiting_approval" || invocation.startedAt !== null ||
+      request?.status !== "executing" || request.companyId !== invocation.companyId ||
+      request.updatedAt.getTime() !== claim.claimedAt.getTime() ||
+      ![hashes.preview, hashes.verified].includes(request.canonicalArgumentsHash) ||
+      ![hashes.preview, hashes.verified].includes(invocation.argumentsHash ?? "")) return false;
+    if (invocation.argumentsHash !== hashes.verified) await tx.update(toolInvocations)
+      .set({ argumentsHash: hashes.verified, updatedAt: new Date() }).where(eq(toolInvocations.id, claim.invocationId));
+    return true;
+  });
+}
+
 export async function startToolInvocation(db: Db, invocationId: string, claim?: ToolApprovalClaim) {
   const now = new Date();
   if (!claim) {

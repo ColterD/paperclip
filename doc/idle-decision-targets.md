@@ -19,11 +19,10 @@ to expire it. The existing open-status compare-and-set arbitrates expiry against
 other decision transitions.
 
 `decision-targets.ts` owns this policy and scoped reconciliation. It delegates
-expiry, activity, and continuation to the existing expiry owner. The public
-combined `sweepExpired` keeps its default behavior for compatibility. Startup
-registers the target worker when scheduling is enabled. The main maintenance tick
-no longer calls the combined decision sweep at all. No new table or migration is
-added.
+expiry, activity, and continuation to the existing expiry owner. Startup
+registers the target worker when scheduling is enabled. The combined internal
+`sweepExpired` method is removed after the final duty is split. No new table or
+migration is added.
 
 ## Producer audit
 
@@ -31,15 +30,23 @@ added.
 | --- | --- | --- |
 | Decision creation, including bundles and caller-owned transactions | Existing creation transaction, before insertion | Decision ID |
 | `issueService.update` entering/reasserting done or cancelled | Existing issue update transaction, before the patch | Issue ID |
-| Issue removal | Existing removal transaction, before deletion | Full open scan |
-| Routine dispatch failure deleting its created issue | Existing dispatch transaction, before deletion | Full open scan |
-| Company deletion | Existing deletion transaction, before issue deletion | Full open scan |
+| Issue removal | Lock the issue and capture linked open decision IDs in the existing transaction, before deletion | Affected decision IDs; no signal when none |
+| Routine dispatch failure deleting its created issue | Same locked pre-delete lookup in the existing dispatch transaction | Affected decision IDs; usually no signal |
 
-The existing target link table supports ordinary issue scopes. Deletion can
-cascade away those links before notification delivery, so it requests a full
-bounded scan. This rare path must not depend on after-commit links. Company
-removal retains all existing restrictive foreign keys; the notification does not
-make an otherwise invalid deletion succeed.
+The existing target link table supports ordinary issue scopes. Before a target
+is deleted, the decision owner locks its issue row, reads distinct linked open
+decisions in the same company, and signals their IDs. The links may then cascade
+without losing notification scope. The row lock closes the race in which a new
+proposal could add its target reference after discovery but before deletion.
+This remains part of the caller's existing transaction; no provider operation
+is wrapped in a new transaction. Production hints require an issue or decision
+ID, so routine cleanup and repeated removals do not restart full startup paging.
+
+Company deletion no longer signals target work. With no decision rows it cannot
+create a same-company invalidation obligation. Pre-existing restrictive origin
+run/issue foreign keys still prevent deleting some companies with decisions;
+that separate limitation is unchanged. This migration does not claim to implement
+complete decision-data deletion for those companies.
 
 Other direct issue writers were inspected: checkout/adoption enter in-progress;
 conversation writers enter todo/in-progress/in-review; recovery enters blocked;
@@ -60,7 +67,8 @@ outside the supported live writer contract; startup still examines all open rows
 The owning service holds pending scopes and cursors, not a second durable queue.
 The database decisions, options, snapshots, and target rows remain truth. Each
 pass examines at most 100 rows/scopes, ordered by expiry and ID using the existing
-open-decision index. An empty scope consumes one unit of the pass budget. It
+open-decision index. The cursor retains PostgreSQL timestamp text, including
+microseconds, rather than rounding through a JavaScript Date. An empty scope consumes one unit of the pass budget. It
 rotates unfinished scopes so a long startup scan does not starve new changes.
 
 A settled notification replaces its scope with a fresh cursor. An admitted pass
@@ -81,7 +89,36 @@ Startup reconstructs anything left after process exit. Cloud's conservative
 sleep guards are unchanged; this establishes worker quiet, not permission to
 sleep with unsupported obligations or proof of host suspension.
 
-## Verification
+## Current verification
+
+All 248 cases in seven complete suites pass: 25 target, 80 routine, 54 decision,
+26 effect-recovery, 20 expiry, 42 startup and one scoped-deadline case. PostgreSQL
+suites use separate migrated external fixtures. Server typecheck and build pass.
+No new migration or table is added. The normal parent merge preserves landed
+expiry and all 21 independent master files. Server types and build use the
+updated Runner vendor (1,524 inputs and 1,563 outputs).
+
+Four real regressions failed before repair: sub-millisecond paging, deletion
+behind a full valid startup page, unrelated deletion notifications and successful
+empty-company deletion notifications. They all pass. The new concurrency test
+observes the proposal's actual PostgreSQL lock wait while deletion is held.
+Temporarily removing the issue-row lock made the test fail because the proposal
+was accepted instead of waiting; restoring it passes. The mutation was restored
+before commit. No timeout or production hold was weakened.
+
+The combined internal method had no production caller after this split. The
+server package exposes only its startup module; neither its exports nor the
+plugin SDK exposes the decision service. Its tests now call the dedicated TTL,
+target, effect and continuation workers, preserving their outcome assertions.
+The obsolete cursor, scan options and exported target-policy method are removed.
+HTTP and plugin SDK contracts are unchanged.
+
+Fresh current-head CI and both automated reviews remain required. Historical
+fixture and CI failures below remain part of the verification record. Extra
+upstream embedded-only tests attempted during parent integration could not
+initialize locally; CI must cover that environment.
+
+## Earlier verification
 
 The initial 17-case real-PostgreSQL target suite passed. The combined selection
 passed 233 tests: those 17, 17 effect-recovery cases, 14 TTL cases, 50 decision
@@ -93,8 +130,10 @@ Coverage includes actual issue update/removal, decision creation after cancellat
 secondary targets, all-target completion, intentional done targets, lenient history,
 outer commit/rollback, startup after deleted links, first change and failed expiry
 through drain, reopened targets, scope isolation, more than one page of valid
-open rows, failure fairness, creation during delivery, and shutdown. The routine
-failure test observes intent and settlement around its real cleanup transaction.
+open rows, failure fairness, creation during delivery, and shutdown. The original routine
+failure test observed intent and settlement around its cleanup transaction. The
+current test requires no target signal when that created issue has no linked
+decisions.
 Quiet assertions observe SQL through one hour of fake time after settlement.
 
 Workspace typecheck/build passed before the final test-only addition. No runtime
@@ -108,12 +147,13 @@ target links used existing indexes: scoped lookup read five buffers (0.012 ms),
 full open-page lookup two (0.003 ms). The probe was rolled back. No new schema
 index is needed for this change. Full PR CI and fresh review remain required.
 
-## Review and CI repair
+## Earlier review and CI repair
 
 Review found that an absent deletion hint was dropped when the outer transaction
 also carried a scoped hint. Both delete-before-update and update-before-delete
 regressions reproduced the missing expiry after the target links cascaded away.
-Deletion now sends the explicit `all` hint, which survives alongside scoped hints.
+That revision sent the explicit `all` hint alongside scoped hints; the current
+pre-delete decision-ID contract below supersedes the global hint.
 The repaired target suite passes 20 cases; the TTL suite passes 14 cases.
 
 The initial CI run failed the TTL worker's drain assertion. It measured SQL

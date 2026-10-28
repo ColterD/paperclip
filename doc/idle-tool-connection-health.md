@@ -231,3 +231,61 @@ The failed CI job is
 Fresh remote CI is still required on the follow-up head. Other review findings
 on health scheduling remain separate; this fixture correction does not resolve
 them or claim deployed sleep.
+
+## Acceptance follow-up after the plugin parent merged (October 27)
+
+PR #17518 is merged as `96727b3cfefb61f85ffe1fbc29a9b6dd6837efe8`.
+The health branch includes that actual master through a normal merge. Its 47
+health-owned paths are the only differences from that master; it changes no
+database files. All 18 preceding sleep PRs are merged. Older statements above
+about an unmerged stack and prior acceptance describe their recorded revisions.
+
+A second security finding exposed a remaining application-wide invalidation in
+example installation and Smoke Lab. With 205 unrelated eligible connections
+under an installed application, five actual repeated installs loaded 1,035 rows
+for the example and 1,045 rows for Smoke Lab. These are failing row-count
+regressions, separate from the earlier individual-connection amplification.
+Metadata-only upserts now retain connection-scoped hints from the actual fixture
+writes. Application-wide refresh occurs only when its type changes eligibility.
+The same tests restore an excluded application through each real installer and
+require all 205 unrelated connection IDs to return to the live schedule.
+
+The upsert reads the current type under its owning transaction's PostgreSQL
+`FOR NO KEY UPDATE` lock. This matches the non-key update and permits foreign-key
+key-share locks. An earlier lookup cannot establish the current type after a
+concurrent writer commits. A real lock-wait test confirms that the installer
+notifies the restored application after the other writer releases its lock.
+Replacing that current-type comparison with the earlier lookup reproduces a
+missing settled hint; the original source is restored after that mutation check.
+No provider call moves inside this transaction.
+
+The latest Greptile finding also reproduced: while 60 healthy due connections
+drained in three bounded batches, a different company's failing inventory read
+ran three times instead of once. Failed inventory scopes now retain their own
+30-second retry deadline. Healthy backlog continuations cannot shorten it, and
+cached connections in an unavailable scope cannot be probed from stale data.
+The regression requires all healthy checks to continue promptly, failed reads
+to remain at least 30 seconds apart, eventual recovery, and SQL quiet after
+settlement. Successful global reconstruction clears the covered failed scopes.
+This changes only the health owner; coordinator and database contracts stay intact.
+
+The six external-database producer suites now apply pending fixture migrations
+before creating their client. All six pass against separate, initially empty
+PostgreSQL 17 databases on source `acbf262843`: 26 health, 469 tool-access,
+18 access, 45 email, four GitHub-event, and seven Smoke Lab cases (569 total).
+Server typecheck and build also pass on that source. The subsequent health
+retry repair has a separate failing baseline and passing focused test; its
+complete consumer and type/build verification is recorded with publication.
+These source checks do not establish deployed suspension, Cloud wake coverage,
+a full local repository-suite pass, or savings. Fresh current-head reviews and
+all CI gates remain mandatory before merge.
+
+Final retry-repair acceptance: all four complete health, company-batching,
+GitHub health recovery, and server startup suites pass 80 cases. Together with
+the five complete producer suites above, this covers 623 distinct cases; the
+26 earlier health cases are included in that total rather than added again.
+Server typecheck and build pass with the retry repair. Startup tests emit the
+existing SIGINT/SIGTERM listener-count warnings; no assertion failed. The fresh
+fixture results and these final worker results have different source scopes as
+stated above. The failed amplification, stale-type mutation, and retry baselines
+are retained; a passing acceptance does not erase those failures.

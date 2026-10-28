@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { pluginJobs, pluginJobRuns, type Db } from "@paperclipai/db";
 import { pluginJobStore, type PluginJobStore } from "./plugin-job-store.js";
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
@@ -20,6 +20,7 @@ export interface PluginJobSchedulerOptions {
   workerManager: PluginWorkerManager;
   tickIntervalMs?: number;
   jobTimeoutMs?: number;
+  settlementTimeoutMs?: number;
   maxConcurrentJobs?: number;
 }
 export interface TriggerJobResult { runId: string; jobId: string }
@@ -46,7 +47,7 @@ function nextCron(schedule: string, now: Date): Date | null {
 
 export function createPluginJobScheduler(options: PluginJobSchedulerOptions): PluginJobScheduler {
   const { db, jobStore, workerManager, tickIntervalMs = 30_000,
-    jobTimeoutMs = 5 * 60_000, maxConcurrentJobs = 10 } = options;
+    jobTimeoutMs = 5 * 60_000, settlementTimeoutMs = 30_000, maxConcurrentJobs = 10 } = options;
   const log = logger.child({ service: "plugin-job-scheduler" });
   const activeJobs = new Set<string>();
   const pendingSettlements = new Map<string, { persist: () => Promise<void>; running?: Promise<void> }>();
@@ -91,6 +92,7 @@ export function createPluginJobScheduler(options: PluginJobSchedulerOptions): Pl
     }
     const finishedAt = new Date();
     pendingSettlements.set(job.id, { persist: () => db.transaction(async tx => {
+      await tx.execute(sql`select set_config('statement_timeout', ${String(settlementTimeoutMs)}, true)`);
       const store = pluginJobStore(tx);
       await store.completeRun(runId, {
         status: error === undefined ? "succeeded" : "failed", error,

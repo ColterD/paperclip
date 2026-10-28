@@ -48,7 +48,7 @@ change, including the proposal in #13364.
 
 | Producer | Commit boundary and effect |
 | --- | --- |
-| Approval create, cancel, revision, resubmit, resolve | `writeApprovalChange` notifies retention and queue seeding before writes in the owning transaction. |
+| Approval create, cancel, revision, resubmit, resolve | `writeApprovalChange` notifies retention and company-scoped queue seeding before writes in the owning transaction. Approve/reject/cancel retain their explicit tool-review notification; ordinary mutations do not wake those queues. |
 | Shared approval records, budget approvals, formal tool approvals | The same approval notification covers their existing transactions. |
 | Issue approval link, unlink, link-many, tool-created links | Existing approval transaction helper. Link removal can expose a different first issue. |
 | Issue visibility changes and issue deletion | Existing approval notification before the update or cascading delete. Routine failure cleanup retains this signal. |
@@ -71,15 +71,18 @@ unscoped maintenance feed. No new deadline is inferred from those display states
 Startup reconstructs missing memberships across the instance. Each later committed
 producer carries its company ID and wakes only that company's reconciliation.
 Pending scopes coalesce in memory; one company's ordinary mutations cannot restart
-a global scan. Scope rotation prevents one failing company from starving another. Each sweep processes at most 100 approvals, with an ID cursor that
-advances past failures and rotates to revisit them. Each row is rechecked under
+a global scan. Scope rotation prevents one failing company from starving another. Each sweep processes at most 100 approvals, with an ID cursor and a fixed upper ID per scan cycle. The cursor advances past
+failures and finishes that finite cycle before revisiting them; new arrivals cannot
+extend it indefinitely. Each row is rechecked under
 an approval lock before the queue writer runs. One bad row cannot permanently
 hide later candidates. Atomic existing membership uniqueness prevents duplicate
 rows and duplicate insertion audit events.
 
 After a sweep, another lookup decides whether actual projection debt remains.
 Unprocessed pages and newer committed signals retain a one-second continuation.
-Failed scopes back off exponentially from one second to one minute. New signals
+Failed scopes back off exponentially from one second to one minute. A successful
+nonempty batch resets consecutive failures; an empty cursor rollover while debt
+remains preserves outage backoff. New signals
 do not reset a failing scope's backoff; other companies can proceed independently.
 The next retry is registered with the shared scheduler, with no SQL during the
 wait. A failed scope remains tracked until its owed memberships are reconciled. The generation check follows the final awaited lookup, so a commit arriving
@@ -162,3 +165,67 @@ Server typecheck and build pass; fresh remote review/checks remain required.
 
 The final startup, approval-retention, and attention consumer run passes all 93
 cases. With the 25 worker and six queue cases, 124 affected tests pass.
+
+
+## Current retention-parent integration
+
+The seeding worker reuses `firstApprovalIssueId` from the approval-visibility
+owner rather than retaining its own first-link SQL. Company IDs are part of the
+approval notification contract because projection reconciliation is scoped.
+Generic approval writes notify retention and seeding only; the existing terminal
+approve/reject/cancel owners alone notify tool-review consumers. Current precise
+issue-deletion target notifications, unseen retention controls, finite retention
+cycles and the real source-row lock regressions are preserved.
+
+All 522 cases in fifteen complete suites pass at `4e725e2055`, with server
+typecheck and production build. This includes seeding, queue routes, work products,
+issue comments, both retention workers, approvals, attention, retention controls,
+budgets, tool gateway, startup, scoped deadlines, environment cleanup and task
+watchdogs. Four new disposable fixtures were cloned from the already migrated
+parent fixture; this is not a fresh-empty-schema claim. The other suites used
+separate existing disposable databases. No database was shared with another
+concurrent local test run. The subsequent parent merge changes only two documents;
+all tested runtime and acceptance sources remain byte-identical.
+
+The first integration typecheck caught two incorrect gateway company references.
+They now use the existing session company, and typecheck plus the complete gateway
+suite pass. Earlier deadlock, cross-company wake, backoff, skipped-fixture and
+teardown failures remain in the historical sections above. The parent's attention
+cleanup timeout and expiry-test CI assertion are recorded in its document; this
+larger current run passes without changing their assertions or timeouts. Fresh
+exact-head reviews and CI remain required before this dependent PR can merge.
+
+
+## Final master and review repairs
+
+Join retention merged as `8406047b4e`. The normal master reconciliation first
+proved that landed tree equals the existing parent. Conflict resolution preserved
+the complete tested seeding tree; it also removed a duplicate helper introduced
+by automatic merge. The PR again differs from master in only its original 25
+seeding paths. Database schema and migration metadata are identical to master.
+
+Three retry regressions failed before repair: ongoing arrivals skipped a recovered
+membership, a partial successful batch retained the old sixty-second failure
+penalty, and resetting that counter on an empty cursor rollover weakened outage
+backoff. The worker now fixes the upper ID per cycle and resets consecutive
+failures only on real successful progress or complete reconciliation. Exact
+one-second recovery and two-second consecutive-failure assertions pass; repeated
+signals still cannot reset a failing scope's delay. No new table or retry wrapper
+is introduced.
+
+The external seeding, queue-route and watchdog fixtures now apply pending
+migrations before creating their client. Each of three empty-database regressions
+failed with missing tables before this setup repair. All 55 cases then passed on
+a second set of genuinely empty databases, with the suites applying their own
+migrations. The final additional rollover guard brings the three complete suites
+to 56 passing cases (28 seeding, 6 queue-route, 22 watchdog), using those now
+migrated fixtures. Server types/build pass at `7948136ef8`. The earlier 522-case
+integration run remains evidence for its stated revision and unchanged consumers;
+it is not relabeled as a current full-suite run.
+
+The first expanded fresh run passed 54 cases and failed the new backoff test's
+cleanup expectation: after an entirely failed full page, a separate empty pass
+ends the cycle before the next pass revisits rows. The corrected fixture permits
+that explicit continuation and still checks complete recovery and the exact retry
+deadline. Earlier failures remain recorded. Fresh final-head CI and reviews are
+required before merge.

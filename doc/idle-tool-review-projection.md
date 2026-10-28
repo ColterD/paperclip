@@ -20,7 +20,8 @@ worker quiet, not whole-instance suspension.
 retains card interpretation, current-state checks, locks, activity publication,
 and the existing continuation callback. The scheduler consumes company discovery,
 `sweep(companyId)`, and the returned retry obligation. No provider payload enters shared scheduling.
-No table or migration is added.
+No table is added. A concurrent company/interaction lookup index supports the
+existing link checks and linked-request updates.
 
 The existing review notification helper now also signals projection repair.
 Notifications are awaited before writes and inherit the outer transaction's
@@ -128,3 +129,101 @@ and exercises administrative repair of legacy cards identified by their saved
 link rather than payload flags.
 
 Company-scoping follow-up verification: all 180 gateway and startup cases and all 152 interaction and secret-proposal route cases passed against dedicated PostgreSQL test databases. Server typechecking passed. These are local checks; stack CI and deployed sleep qualification remain separate.
+
+
+## Indexed interaction links
+
+Review found that the new link check had no supporting interaction index. An
+ordinary unlinked confirmation could scan all tool-action history for its company.
+The generated `0386_steady_epoch.sql` migration adds the non-unique
+`(company_id, interaction_id)` index concurrently, and the existing top-level
+migration executor handles its creation and interrupted-build recovery. The
+schema and generated snapshot describe the same index; older SQL and journal
+entries are preserved and snapshot pruning retains the five newest snapshots.
+
+A real PostgreSQL check applied the migration to a fresh dedicated test database
+and seeded 30,000 tool-action rows. The ordinary missing-link query returned no
+rows in both treatments: without the index it performed a sequential scan,
+filtered 30,000 rows and touched 429 shared buffers; with the index it used the
+new index and touched two buffers. These are local planner measurements, not a
+fleet latency or cost claim. The baseline index removal was rolled back in that
+dedicated database, and the index remained valid afterwards. An initial probe
+failed while binding a JSON fixture parameter before any comparison; correcting
+the parameter encoding made the complete probe pass. That failed fixture is not
+counted as a product regression.
+
+Migration numbering/safety checks, generated snapshot drift, server types and
+server build pass. All 214 cases in the full gateway/projection/startup/scoped-
+deadline selection pass against a separate freshly migrated database, preserving
+notification quiet, company isolation, transaction settlement, and interruption
+behavior. Latest-head CI and automated reviews remain required merge gates.
+
+## Bounded projection and lifecycle interruption
+
+A review found that one company could drain an unlimited backlog in a single
+worker pass. Five real PostgreSQL regressions reproduced 501 rows being consumed
+instead of the 500-row budget, missing abort/drain handling, and the absence of
+continuation past a full page of unprojectable or failed cards.
+
+The worker now gives its existing service a 500-row budget, the coordinator's
+abort signal, and its admission predicate. The service checks admission between
+rows and reads at most 100 candidates per page. It retains the last attempted
+request ID for each unfinished company, including after a failed pass, so a
+poisoned early page cannot hide later healthy cards. A truncated pass schedules
+a one-second continuation; the existing shared per-company fairness and failure
+backoff remain in force. A completed pass that still has an unprojectable card
+backs off from thirty seconds to five minutes. Fresh committed company changes
+reset that delay and wake the affected scope promptly. These are real unresolved projections,
+not an unconditional empty-history scan.
+
+Reconstruction clears continuation state for companies that no longer have
+mismatches. A sixth real regression reproduced an abandoned cursor skipping the
+first new earlier card after an empty reconstruction; clearing that cursor makes
+the first new pass repair it immediately. The maps contain no durable truth:
+restart reconstructs from the existing rows, and completed rows stop matching.
+There is no cursor table, independent timer or per-producer recovery wrapper.
+
+Legacy manual/global and scheduler-disabled one-shot repair calls retain their
+complete-sweep behavior unless they request a budget. The normal coordinator
+worker always supplies the bounded options. Cancellation is observed between
+rows and pages; an already issued database query or reflection finishes before
+the service stops. A sweep never replays a provider tool action.
+
+All 220 cases across the full gateway/projection/interruption, startup and scoped
+deadline suites pass, with no skipped cases. The five initial regressions and
+sixth cursor regression failed before their fixes; server types and build pass.
+The earlier 219-case acceptance remains evidence for the preceding revision.
+Fresh integrated-head CI and both automated reviews remain merge gates.
+
+
+After normal reconciliation with master `f6bc653f7f`, all 320 integrated cases
+pass, including the 81 authenticated gateway HTTP cases and the upstream narrowed
+identity-read tests. Server types and build pass. Thirty-five independent master
+performance files are preserved exactly; the gateway's narrowed identity read
+is preserved alongside the projection extraction. The pre-integration 220-case
+selection above remains evidence for its stated revision.
+
+
+## Review efficiency follow-up
+
+A company-scoped hint now enters the bounded owner directly rather than first
+repeating company discovery. Startup/global reconstruction still discovers
+companies from existing rows. An empty sweep with no saved cursor returns after
+one candidate query; a resumed cursor or attempted reflection still needs the
+final query to detect unresolved earlier cards. The reflection callback returns
+no settlement result, so an attempted reflection cannot establish that a card
+was repaired.
+
+Returned unresolved work now backs off through 30, 60, 120, 240 and 300 seconds,
+matching the shared error-backoff cap. Truncated backlog continuation remains
+one second. Settlement removes the retry; a new committed hint resets backoff.
+No pending row is discarded, and no independent timer or table is added.
+
+The fixed-cadence regression failed before repair and now verifies the full
+backoff cap, producer reactivation and quiet after settlement. An initial scan
+assertion incorrectly assumed that a complete approval emitted only one wake;
+its separate legitimate writes caused two scans even after optimization. The
+corrected case isolates one committed hint and verifies one candidate scan with
+matching history, followed by an empty direct sweep with one query. All 222
+cases in the full gateway, startup and scoped-deadline suites pass without skips;
+server typecheck and build pass. Fresh-head CI and both reviews are still required.
