@@ -1384,7 +1384,7 @@ export function toolAccessPolicyService(db: Pick<Db, "select" | "insert" | "upda
     });
   }
 
-  async function admittedRateLimitAdmissions(ctx: ToolAccessContext, invocationId: string): Promise<ConsumedRateAdmission[] | null> {
+  async function admittedRateLimitAdmissions(ctx: ToolAccessContext, invocationId: string, previewHash?: string): Promise<ConsumedRateAdmission[] | null> {
     const [invocation] = await db.select({
       actorType: toolInvocations.actorType, actorId: toolInvocations.actorId, agentId: toolInvocations.agentId,
       runId: toolInvocations.runId, issueId: toolInvocations.issueId, gatewayId: toolInvocations.gatewayId,
@@ -1412,7 +1412,7 @@ export function toolAccessPolicyService(db: Pick<Db, "select" | "insert" | "upda
       && invocation.catalogEntryId === ctx.catalogEntryId && invocation.toolName === ctx.toolName
       && invocation.providerType === ctx.providerType && invocation.applicationKey === ctx.applicationKey
       && invocation.upstreamToolName === ctx.upstreamToolName
-      && invocation.argumentsHash === ctx.argumentsHash;
+      && (invocation.argumentsHash === ctx.argumentsHash || invocation.argumentsHash === previewHash);
     if (!authorized) return null;
     const stored = invocation.policyExplanation?.[isDelegatedCaller ? "delegatedCallerConsumedRateAdmissions" : "consumedRateAdmissions"];
     return Array.isArray(stored) ? stored.filter((item): item is ConsumedRateAdmission => isRecord(item)
@@ -1428,6 +1428,7 @@ export function toolAccessPolicyService(db: Pick<Db, "select" | "insert" | "upda
     evaluate?: (
       policy: Pick<ReturnType<typeof toolAccessPolicyService>, "decide" | "writeAudit">,
       input: ToolAccessDecisionInput,
+      transaction: Db,
     ) => Promise<ToolAccessDecision>,
   ): Promise<ToolAccessDecision> {
     try {
@@ -1460,7 +1461,7 @@ export function toolAccessPolicyService(db: Pick<Db, "select" | "insert" | "upda
         // Composed caller/target policy must share this claim transaction so
         // either all new charges and receipts commit or all roll back.
         const result = evaluate
-          ? await evaluate(admissionPolicy, admissionInput)
+          ? await evaluate(admissionPolicy, admissionInput, tx as unknown as Db)
           : await admissionPolicy.decide(admissionInput, { admittedInvocationId: invocationId });
         if (!result.allowed && result.decision !== "require_approval") {
           // A later policy can reject after an earlier rate rule spent a slot.
@@ -1493,7 +1494,7 @@ export function toolAccessPolicyService(db: Pick<Db, "select" | "insert" | "upda
    */
   async function decide(
     input: ToolAccessDecisionInput,
-    options: { cache?: ToolAccessDecisionCache; admittedInvocationId?: string; sharedRateDecision?: ToolAccessDecision } = {},
+    options: { cache?: ToolAccessDecisionCache; admittedInvocationId?: string; admittedPreviewHash?: string; sharedRateDecision?: ToolAccessDecision } = {},
   ): Promise<ToolAccessDecision> {
     const consumedRateAdmissions: ConsumedRateAdmission[] = [];
     const result = await decideInternal(input, options, consumedRateAdmissions);
@@ -1504,7 +1505,7 @@ export function toolAccessPolicyService(db: Pick<Db, "select" | "insert" | "upda
 
   async function decideInternal(
     input: ToolAccessDecisionInput,
-    options: { cache?: ToolAccessDecisionCache; admittedInvocationId?: string; sharedRateDecision?: ToolAccessDecision },
+    options: { cache?: ToolAccessDecisionCache; admittedInvocationId?: string; admittedPreviewHash?: string; sharedRateDecision?: ToolAccessDecision },
     consumedRateAdmissions: ConsumedRateAdmission[],
   ): Promise<ToolAccessDecision> {
     // A decision that consumes a rate limit can also record a trust-rule hit
@@ -1519,7 +1520,7 @@ export function toolAccessPolicyService(db: Pick<Db, "select" | "insert" | "upda
     // edited rules still apply. admitInvocation owns atomic consuming rechecks;
     // ordinary preflight and browser handoff callers remain read-only.
     const admittedRates = options.admittedInvocationId
-      ? await admittedRateLimitAdmissions(ctx, options.admittedInvocationId) : [];
+      ? await admittedRateLimitAdmissions(ctx, options.admittedInvocationId, input.consumeRateLimit === true ? undefined : options.admittedPreviewHash) : [];
     if (options.admittedInvocationId && input.consumeRateLimit === true && admittedRates === null) {
       return decision("deny", "deny_policy_block", "Tool invocation no longer matches this admission.", [], []);
     }

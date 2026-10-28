@@ -128,6 +128,24 @@ let promptTurnSeq = 0;
 // sealed.
 let lateStragglerRemaining = 0;
 function emit(value) {
+  if (value.type === "session.idle" && runtimeConfig.experimental?.openTelemetry) {
+    const now=Date.now();
+    const headers=Object.fromEntries((process.env.OTEL_EXPORTER_OTLP_HEADERS??"").split(",").map(entry=>{
+      const i=entry.indexOf("=");return [entry.slice(0,i),entry.slice(i+1)];
+    }));
+    void fetch(`${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`,{method:"POST",headers,
+      body:JSON.stringify({resourceSpans:[{scopeSpans:[{spans:[{name:"ai.streamText",
+        startTimeUnixNano:String(BigInt(now-22)*1000000n),endTimeUnixNano:String(BigInt(now)*1000000n),
+        attributes:[{key:"prompt",value:{stringValue:"private-performance-sentinel"}}],
+      }]}]}]})}).then(response=>{
+      if(!response.ok)throw new Error(`Performance fixture rejected: ${response.status}`);
+      emitFrame(value);
+    }).catch(error=>{process.stderr.write(String(error));process.exit(1)});
+    return;
+  }
+  emitFrame(value);
+}
+function emitFrame(value) {
   const scoped =
     promptTurnSeq > 0 && typeof value.id === "string"
       ? { ...value, id: `${value.id}#${promptTurnSeq}` }

@@ -1,4 +1,3 @@
-import { notifyToolReviewChange } from "./tool-review-work-notifications.js";
 import type { Db } from "@paperclipai/db";
 import { DELIVERY_QUEUES, notifyDeliveryWork } from "./delivery-work-notifications.js";
 
@@ -7,8 +6,6 @@ export const notifyApprovalQueueWork = (transaction: object, companyId: string) 
 export async function notifyApprovalWork(transaction: object, companyId: string) {
   await notifyDeliveryWork(transaction, DELIVERY_QUEUES.approvalRetention);
   await notifyApprovalQueueWork(transaction, companyId);
-  // Formal decisions release parked tool reviews on the same outer commit.
-  await notifyToolReviewChange(transaction, companyId);
 }
 
 export function writeApprovalChange<T>(db: Db, companyId: string, write: (transaction: Db) => Promise<T>): Promise<T> {

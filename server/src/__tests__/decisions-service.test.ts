@@ -207,6 +207,34 @@ describePg("decisionService", () => {
     expect(states.find((row) => row.sourceId === unreviewedIssueId)?.archivedAt).toBeNull();
   });
 
+  it.each(["invalid_signature", "manifest_mismatch", "archive_failure"] as const)("delivers a recovered archive failure without inherited pending metadata: %s", async failure => {
+    const activityAt = new Date("2026-04-01T00:00:00.000Z");
+    const manifest: AttentionArchiveManifestEntry[] = [{ companyId, sourceKind: "review", sourceId: targetIssueId,
+      expectedVersion: 1, activityAt: activityAt.toISOString(), reason: "Archive" }];
+    const row = await service().create({ companyId, actor: agentActor(), agentId, runId, title: "Archive?", body: "Exact set",
+      continuationPolicy: "wake_origin_agent", options: [{ id: "archive", label: "Archive", effects: [] }],
+      metadata: { kind: "attention_archive_proposal", manifestHash: failure === "manifest_mismatch" ? "incorrect" : hashAttentionArchiveManifest(manifest) },
+      additionalTargetSnapshots: { [`attention:review:${targetIssueId}`]: { status: "attention", assigneeAgentId: null,
+        assigneeUserId: null, updatedAt: activityAt.toISOString(), attentionArchive: manifest[0] } } });
+    await db.update(decisions).set({ status: "decided", executionStatus: "running", chosenOptionId: "archive",
+      decidedByUserId, decidedAt: new Date(), updatedAt: new Date(Date.now() - 120_000),
+      ...(failure === "invalid_signature" ? { signedSpec: "invalid" } : {}),
+      metadata: { ...row.metadata, continuationPending: false } }).where(eq(decisions.id, row.id));
+    const original = retentionModule.decisionRetentionService;
+    const factory = failure === "archive_failure" ? vi.spyOn(retentionModule, "decisionRetentionService").mockImplementation((source, options) => ({
+      ...original(source, options), archiveReviewedManifest: async () => { throw new Error("archive_failure"); },
+    })) : undefined;
+    try {
+      expect(await service().recoverEffects()).toMatchObject({ resumed: 1 });
+      const saved = await service().get(row.id);
+      expect(saved).toMatchObject({ executionStatus: "failed", metadata: { archiveProposalError: failure, continuationPending: false } });
+      expect(saved!.metadata.continuationDeliveredAt).toEqual(expect.any(String));
+      expect(wakes).toHaveLength(1);
+      await service().recoverEffects();
+      expect(wakes).toHaveLength(1);
+    } finally { factory?.mockRestore(); }
+  });
+
   it("serializes concurrent archive completion before reporting its outcome", async () => {
     await db.update(issues).set({ status: "in_review", assigneeUserId: decidedByUserId }).where(eq(issues.id, targetIssueId));
     const activityAt = new Date("2026-04-01T00:00:00.000Z");
@@ -235,14 +263,28 @@ describePg("decisionService", () => {
     let second: ReturnType<typeof decide> | undefined;
     try {
       await vi.waitFor(() => expect(archived).toBe(true));
-      second = decide();
-      await new Promise(resolve => setTimeout(resolve, 100));
-      release();
-      const results = await Promise.all([first, second]);
-      expect(results.map(result => result.executionStatus)).toEqual(["succeeded", "succeeded"]);
-      expect(calls).toBe(1); expect(wakes).toHaveLength(1);
-      const [state] = await db.select().from(decisionRetention);
-      expect(state.archiveVersion).toBe(1); expect(state.archivedAt).not.toBeNull();
+      await withDedicatedDbConnection(db, async contender => {
+        let observed!: () => void;
+        const readStarted = new Promise<void>(resolve => { observed = resolve; });
+        let decisionReads = 0;
+        contender.$client.options.debug = (_id, query) => {
+          if (/^select/i.test(query) && query.includes('from "decisions"')) { decisionReads++; observed(); }
+        };
+        try {
+          second = decisionService(contender, { wakeOriginAgent: async input => { wakes.push(input); } })
+            .decide({ id: row.id, optionId: "archive", decidedByUserId, userActor: boardActor() });
+          await readStarted;
+          await contender.execute(sql`select 1`);
+          await contender.execute(sql`select 1`);
+          expect(decisionReads).toBe(1);
+          release();
+          const results = await Promise.all([first, second]);
+          expect(results.map(result => result.executionStatus)).toEqual(["succeeded", "succeeded"]);
+          expect(calls).toBe(1); expect(wakes).toHaveLength(1);
+          const [state] = await db.select().from(decisionRetention);
+          expect(state.archiveVersion).toBe(1); expect(state.archivedAt).not.toBeNull();
+        } finally { release(); await Promise.allSettled([first, ...(second ? [second] : [])]); }
+      });
     } finally { release(); await Promise.allSettled([first, ...(second ? [second] : [])]); factory.mockRestore(); }
   });
 
@@ -470,7 +512,7 @@ describePg("decisionService", () => {
     expect(await db.select().from(issueComments).where(eq(issueComments.issueId, targetIssueId))).toHaveLength(1);
   });
 
-  it("recovers stale running decisions from the bounded server sweep", async () => {
+  it("recovers stale running decisions from the effect worker", async () => {
     process.env.PAPERCLIP_DECISIONS_RECOVERY_GRACE_MS = "0";
     const created = await createCommentDecision();
     await db.update(decisions).set({ status: "decided", executionStatus: "running", chosenOptionId: "yes", decidedByUserId,
@@ -478,7 +520,7 @@ describePg("decisionService", () => {
     await db.insert(decisionEffectExecutions).values({ decisionId: created.id, effectIndex: 0, effectType: "comment_on_issue",
       targetIssueId, status: "claimed" });
 
-    expect(await service().sweepExpired()).toEqual({ expired: 0, resumed: 1 });
+    expect(await service().recoverEffects()).toEqual({ resumed: 1 });
     expect((await service().get(created.id))?.executionStatus).toBe("succeeded");
     expect(await db.select().from(issueComments).where(eq(issueComments.issueId, targetIssueId))).toHaveLength(1);
     expect(wakes).toEqual([{ companyId, agentId, issueId: originIssueId, decisionId: created.id, outcome: "decided" }]);
@@ -496,7 +538,7 @@ describePg("decisionService", () => {
     expect((await service().get(created.id))?.metadata).toMatchObject({ continuationPending: true });
     expect(await db.select().from(issueComments).where(eq(issueComments.issueId, targetIssueId))).toHaveLength(1);
 
-    await service().sweepExpired();
+    await service().sweepContinuations();
 
     expect(wakes).toEqual([{ companyId, agentId, issueId: originIssueId, decisionId: created.id, outcome: "decided" }]);
     expect((await service().get(created.id))?.metadata).toMatchObject({ continuationPending: false });
@@ -571,8 +613,8 @@ describePg("decisionService", () => {
     const second = await createCommentDecision("lenient", { idempotencyKey: "batch-2", expiresAt: nearFutureExpiry() });
     await expireDecisionNow(first.id);
     await expireDecisionNow(second.id);
-    expect((await service().sweepExpired()).expired).toBe(1);
-    expect((await service().sweepExpired()).expired).toBe(1);
+    expect((await service().sweepTtlExpiry()).expired).toBe(1);
+    expect((await service().sweepTtlExpiry()).expired).toBe(1);
   });
 
   it("falls back to the default sweep batch size for invalid configuration", async () => {
@@ -582,7 +624,7 @@ describePg("decisionService", () => {
     await expireDecisionNow(first.id);
     await expireDecisionNow(second.id);
 
-    await expect(service().sweepExpired()).resolves.toMatchObject({ expired: 2 });
+    await expect(service().sweepTtlExpiry()).resolves.toMatchObject({ expired: 2 });
   });
 
   it("expires TTL and target-gone decisions and wakes the origin agent", async () => {
@@ -591,7 +633,8 @@ describePg("decisionService", () => {
     await db.update(decisions).set({ expiresAt: new Date(0) }).where(eq(decisions.id, ttl.id));
     await db.update(issues).set({ status: "cancelled" }).where(eq(issues.id, targetIssueId));
     await expireDecisionNow(ttl.id);
-    expect((await service().sweepExpired()).expired).toBe(2);
+    expect((await service().sweepTtlExpiry()).expired).toBe(1);
+    expect((await service().sweepInvalidTargets()).expired).toBe(1);
     const rows = await db.select().from(decisions);
     expect(rows.find((row) => row.id === ttl.id)?.metadata).toMatchObject({ expiredReason: "ttl" });
     expect(rows.find((row) => row.id === gone.id)?.metadata).toMatchObject({ expiredReason: "target_gone" });
@@ -603,7 +646,7 @@ describePg("decisionService", () => {
     const lenient = await createCommentDecision("lenient", { idempotencyKey: "lenient-survives" });
     await db.update(issues).set({ status: "done" }).where(eq(issues.id, targetIssueId));
 
-    expect((await service().sweepExpired()).expired).toBe(1);
+    expect((await service().sweepInvalidTargets()).expired).toBe(1);
 
     expect((await service().get(completed.id))?.metadata).toMatchObject({ expiredReason: "target_completed" });
     expect((await service().get(lenient.id))?.status).toBe("open");
@@ -614,7 +657,7 @@ describePg("decisionService", () => {
     await db.update(issues).set({ status: "done" }).where(eq(issues.id, targetIssueId));
     const reopen = await createCommentDecision("strict", { idempotencyKey: "already-done" });
 
-    expect((await service().sweepExpired()).expired).toBe(0);
+    expect((await service().sweepInvalidTargets()).expired).toBe(0);
     expect((await service().get(reopen.id))?.status).toBe("open");
   });
 
@@ -649,7 +692,7 @@ describePg("decisionService", () => {
     });
     await db.update(issues).set({ status: "done" }).where(eq(issues.id, blockerId));
 
-    expect((await service().sweepExpired()).expired).toBe(1);
+    expect((await service().sweepInvalidTargets()).expired).toBe(1);
     expect((await service().get(created.id))?.metadata).toMatchObject({ expiredReason: "target_completed" });
   });
 
@@ -674,7 +717,7 @@ describePg("decisionService", () => {
     await service().decide({ id: acceptedAgain.id, optionId: "assign", decidedByUserId, userActor: boardActor() });
     await service().dismiss(rejected.id, decidedByUserId, boardActor(), "Not this time");
     await expireDecisionNow(stale.id);
-    await service().sweepExpired();
+    await service().sweepTtlExpiry();
 
     const stats = await service().stats(companyId, { originAgentId: agentId });
     expect(stats.filters).toEqual({ originAgentId: agentId, since: null });
@@ -727,10 +770,10 @@ describePg("decisionService", () => {
       };
       vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"], shouldAdvanceTime: true });
     });
-    async function start() {
+    async function start(svc = workerService()) {
       coordinator = createDeliveryWorkCoordinator({ owner: db, canRun: () => !draining,
         canReconcile: () => true, onError: error => errors.push(error) });
-      await registerDecisionContinuationWork(coordinator, workerService(), () => !draining).ready;
+      await registerDecisionContinuationWork(coordinator, svc, () => !draining).ready;
     }
     async function quiet() {
       await vi.waitFor(async () => {
@@ -752,6 +795,30 @@ describePg("decisionService", () => {
     const markReady = (id: string, source = db) => writeDecisionChange(source, async tx => tx.update(decisions)
       .set({ status: "cancelled", metadata: { continuationPending: true } }).where(eq(decisions.id, id)));
 
+    it("coalesces sequential tenant writes without dropping pending recovery", async () => {
+      const row = await createCommentDecision();
+      const svc = workerService(), sweep = vi.spyOn(svc, "sweepContinuations");
+      await start(svc); await quiet(); sweep.mockClear();
+      await svc.cancel(row.id, { actorType: "agent", actorId: agentId });
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.waitFor(() => expect(idleWorkSnapshot().active).toBe(0));
+      expect(sweep).toHaveBeenCalledTimes(1);
+      for (let i = 0; i < 5; i++) {
+        const next = await createCommentDecision();
+        await svc.cancel(next.id, { actorType: "agent", actorId: agentId });
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+      expect(sweep).toHaveBeenCalledTimes(1);
+      const recovery = await createCommentDecision();
+      await markReady(recovery.id);
+      await vi.advanceTimersByTimeAsync(1000);
+      await pending(recovery.id);
+      expect(sweep).toHaveBeenCalledTimes(1);
+      await quiet(); await delivered(recovery.id);
+      expect(sweep).toHaveBeenCalledTimes(2);
+      expect(wake.mock.calls.filter(([input]) => input.decisionId === recovery.id)).toHaveLength(1);
+    });
+
     it.each(["decide", "cancel", "dismiss", "expire"] as const)("reactivates from real %s and leaves delivered history quiet", async action => {
       const row = await createCommentDecision();
       await start(); await quiet();
@@ -759,7 +826,7 @@ describePg("decisionService", () => {
       if (action === "decide") await svc.decide({ id: row.id, optionId: "yes", decidedByUserId, userActor: boardActor() });
       if (action === "cancel") await svc.cancel(row.id, { actorType: "agent", actorId: agentId });
       if (action === "dismiss") await svc.dismiss(row.id, decidedByUserId, boardActor());
-      if (action === "expire") { await expireDecisionNow(row.id); await svc.sweepExpired(new Date(), { includeContinuations: false }); }
+      if (action === "expire") { await expireDecisionNow(row.id); await svc.sweepTtlExpiry(); }
       await quiet(); await delivered(row.id);
       expect(wake).toHaveBeenCalledTimes(1);
       expect(wake.mock.calls[0][0]).toMatchObject({ decisionId: row.id, companyId, agentId, issueId: originIssueId });

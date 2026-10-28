@@ -96,3 +96,26 @@ The tests use the existing real OAuth/agent/routine fixture and a controlled
 provider response. A validated disposable external PostgreSQL option permits
 local execution where embedded PostgreSQL is unavailable; CI retains embedded
 PostgreSQL by default. Provider-host suspension is outside this local proof.
+
+
+## Current parent reconciliation
+
+The normal merge of target parent `85ce6545bf` preserves its complete tree outside
+this duty's explicit files. Grok dispatch, reservation, settings and app wiring
+are unchanged from the preceding candidate. The index is regenerated as
+`0391_third_roulette.sql`, with concurrent/idempotent execution. All 389 parent
+journal entries are unchanged; five generated snapshots remain (0387–0391).
+Schema drift, migration safety/numbering and fresh apply/replay on two isolated
+PostgreSQL databases pass.
+
+All 273 cases in nine complete suites pass at `6d81746fe2`: dispatch lifecycle,
+Grok qualification, server startup, scoped deadlines and all five instance-settings
+suites. Server typecheck and production build pass with the current Runner vendor.
+The earlier 259-case and populated-plan measurements above remain historical
+evidence; fresh exact-head reviews and CI are required.
+
+An earlier browser CI run failed during agent-chat fixture restoration with a
+lock timeout/HTTP 500; the subsequent case observed the experiment left enabled.
+Those failures were not dispatcher assertions and are retained in the evidence.
+The later pre-reconciliation `a74305e2b4` checks were terminal and green. Neither
+that older result nor local acceptance substitutes for this candidate's CI.
