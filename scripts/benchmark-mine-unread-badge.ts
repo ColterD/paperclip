@@ -15,13 +15,41 @@ const baselineRevision = execFileSync("git", ["rev-parse", `${baselineRef}^{comm
 const diagnostic = process.argv.includes("--diagnostic");
 const treatmentIsBaseline = process.argv.includes("--treatment-is-baseline");
 const enforceBudget = process.argv.includes("--assert-performance");
-const maxDenseMs = Number(process.argv.find(arg => arg.startsWith("--max-dense-ms="))?.slice(15) ?? 60);
+const maxDenseArgument = process.argv.find(arg => arg.startsWith("--max-dense-ms="))?.slice(15);
+const maxDenseMs = maxDenseArgument === undefined ? Infinity : Number(maxDenseArgument);
+const validateBaseline = process.argv.includes("--validate-baseline");
+const validateReport = process.argv.find(arg => arg.startsWith("--validate-report="))?.slice(18);
 const sampleGateDir = process.argv.find(arg => arg.startsWith("--sample-gate-dir="))?.slice(18);
 const evidenceDir = process.argv.find(arg => arg.startsWith("--evidence-dir="))?.slice(15);
 const started = performance.now();
 const modulePaths = ["server/src/services/issues.ts", "server/src/services/issue-participation.ts"];
 const changedDependencies = execFileSync("git", ["diff", "--name-only", baselineRevision, "--", "server/src/services", "packages/db/src", "packages/shared/src"], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
 assert.deepEqual(changedDependencies.filter(file => !modulePaths.includes(file)), [], "Baseline must use unchanged service dependencies");
+type PerformanceCase = {
+  jit: string; readMode: string; baseline: { medianMs: number }; treatment: { medianMs: number }; speedup: number;
+  plans: Array<{ arm: string; queries: Array<{ plan: Array<{ JIT?: { Options?: { Inlining?: boolean; Optimization?: boolean } } }> }> }>;
+};
+type PerformanceResult = { fixture: { name: string }; cases: PerformanceCase[] };
+function assertPerformance(results: PerformanceResult[], arm: "baseline" | "treatment" = "treatment") {
+  const denseCases = results.find(result => result.fixture.name === "dense")!.cases.filter(result => result.jit === "on");
+  for (const result of denseCases) {
+    if (Number.isFinite(maxDenseMs)) assert.ok(result[arm].medianMs <= maxDenseMs, `Dense default-JIT fixture exceeds ${maxDenseMs}ms local budget: ${result[arm].medianMs.toFixed(2)}ms`);
+    const options = result.plans.find(plan => plan.arm === arm)!.queries[0]!.plan[0]!.JIT?.Options;
+    assert.ok(!options?.Inlining && !options?.Optimization, `Dense ${arm} must avoid full JIT compilation passes`);
+    if (arm === "treatment") assert.ok(result.speedup >= 1.5, `Dense default-JIT fixture requires at least1.5x improvement, observed ${result.speedup.toFixed(2)}x`);
+  }
+  if (arm === "baseline") return;
+  const controls = results.filter(result => result.fixture.name !== "dense").flatMap(result => result.cases);
+  for (const control of controls) assert.ok(control.treatment.medianMs <= Math.max(control.baseline.medianMs * 1.25, control.baseline.medianMs + 2), "Small/sparse control regressed beyond25%and2ms allowance");
+}
+if (validateReport) {
+  const report = JSON.parse(await fs.readFile(validateReport, "utf8"));
+  assert.equal(report.baselineRevision, baselineRevision);
+  for (const [file, hash] of Object.entries(report.sourceHashes)) assert.equal(createHash("sha256").update(await fs.readFile(file)).digest("hex"), hash, `Source changed since measured report: ${file}`);
+  assertPerformance(report.results, validateBaseline ? "baseline" : "treatment");
+  console.log(JSON.stringify({ status: "performance budget passed", report: validateReport, baselineRevision, sourceHashes: report.sourceHashes }));
+  process.exit(0);
+}
 const baselineDir = await fs.mkdtemp(path.join(fileURLToPath(new URL("../server/scripts/", import.meta.url)), ".mine-unread-baseline-"));
 const rewrite = (source: string, originalPath: string) => source.replace(/from "(\.{1,2}\/[^\"]+)"/g, (_match, specifier: string) => {
   const resolved = fileURLToPath(new URL(specifier, pathToFileURL(path.resolve(originalPath))));
@@ -194,15 +222,7 @@ try {
   const json = JSON.stringify(report, null, 2);
   if (evidenceDir) { await fs.mkdir(evidenceDir, { recursive: true }); await fs.writeFile(path.join(evidenceDir, "benchmark.json"), json); }
   console.log(json);
-  if (enforceBudget && !diagnostic) {
-    const denseCases = results.find(result => result.fixture.name === "dense")!.cases.filter(result => result.jit === "on");
-    for (const denseDefault of denseCases) {
-    assert.ok(denseDefault.treatment.medianMs <= maxDenseMs, `Dense default-JIT fixture exceeds ${maxDenseMs}ms local budget: ${denseDefault.treatment.medianMs.toFixed(2)}ms`);
-    assert.ok(denseDefault.speedup >= 1.5, `Dense default-JIT fixture requires at least1.5x improvement, observed ${denseDefault.speedup.toFixed(2)}x`);
-    }
-    const controls = results.filter(result => result.fixture.name !== "dense").flatMap(result => result.cases);
-    for (const control of controls) assert.ok(control.treatment.medianMs <= Math.max(control.baseline.medianMs * 1.25, control.baseline.medianMs + 2), "Small/sparse control regressed beyond25%and2ms allowance");
-  }
+  if (enforceBudget && !diagnostic) assertPerformance(results);
 } finally {
   await db?.$client.end({ timeout: 0 });
   await database?.cleanup();
