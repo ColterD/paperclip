@@ -320,6 +320,27 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
     expect(await service.next()).toBeNull();
   });
 
+  it("retries a failed request while newer overdue pages keep arriving", async () => {
+    const at = old(); const failed = await create(at);
+    const append = async (offset: number) => {
+      for (let i = 0; i < 100; i++) await create(new Date(at.getTime() + offset + i));
+    };
+    await append(1);
+    await db.execute(sql`create function join_retention_fail() returns trigger language plpgsql as $$ begin
+      if new.archived_at is not null and new.source_id = TG_ARGV[0] then raise exception 'retention unavailable'; end if;
+      return new; end $$`);
+    await db.execute(sql`create trigger join_retention_fail before update on decision_retention for each row execute function join_retention_fail(${sql.raw("'" + failed.id + "'")})`);
+    const service = joinRequestRetentionService(db);
+    await expect(service.sweep()).rejects.toThrow("Failed query");
+    await append(1000); await service.sweep();
+    await append(2000);
+    await db.execute(sql`drop trigger join_retention_fail on decision_retention`);
+    await service.sweep();
+    expect((await state(failed.id))?.archivedAt).toBeInstanceOf(Date);
+    while (await service.next() !== null) await service.sweep();
+    expect(await service.next()).toBeNull();
+  });
+
   it("joins an admitted archive on shutdown and leaves later candidates for restart", async () => {
     const first = await create(new Date(old().getTime() - 1000)), second = await create(old());
     let release!: () => void, locked!: () => void;

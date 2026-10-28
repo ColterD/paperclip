@@ -345,6 +345,26 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
     expect(await service.sweep()).toEqual({ archived: 1 }); expect(await service.next()).toBeNull();
   });
 
+  it("retries a failed approval while newer overdue pages keep arriving", async () => {
+    const at = old();
+    const [failed] = await db.insert(approvals).values({ companyId, type: "request_board_approval",
+      payload: { retentionTestFailure: true }, createdAt: at, updatedAt: at }).returning();
+    const append = async (offset: number) => db.insert(approvals).values(Array.from({ length: 100 }, (_, i) => ({
+      companyId, type: "request_board_approval", payload: {}, createdAt: at,
+      updatedAt: new Date(at.getTime() + offset + i),
+    })));
+    await append(1); await failArchives();
+    const service = approvalRetentionService(db);
+    await expect(service.sweep()).rejects.toThrow("Failed query");
+    await append(1000); await service.sweep();
+    await append(2000);
+    await db.execute(sql`drop trigger approval_retention_fail on decision_retention`);
+    await service.sweep();
+    expect((await state(failed.id))?.archivedAt).toBeInstanceOf(Date);
+    while (await service.next() !== null) await service.sweep();
+    expect(await service.next()).toBeNull();
+  });
+
   it("reconstructs startup obligations while paused and performs no passive SQL", async () => {
     const row = await create(old()); draining = true;
     await start();
