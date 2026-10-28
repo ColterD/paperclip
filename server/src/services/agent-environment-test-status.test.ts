@@ -96,6 +96,12 @@ describe("managed Runner connection test status", () => {
     runtimeProbe.mockResolvedValue({ adapterType: "paperclip_runner", status: "warn", testedAt: checkedAt, checks: [] });
     expect((await testConnection()).status).toBe("warn");
   });
+  it("preserves an unexplained provider warning even with a hello receipt", async () => {
+    vi.stubEnv("PAPERCLIP_CLOUD_TENANT_SERVER_TOKEN", "managed-fixture"); verifiedClaude();
+    claudeProbe.mockResolvedValue({ adapterType: "claude_local", status: "warn", testedAt: checkedAt,
+      checks: [{ code: "claude_hello_probe_passed", level: "info", message: "Hello completed with an unresolved warning." }] });
+    expect((await testConnection()).status).toBe("warn");
+  });
   it("keeps actionable warnings after a successful hello", async () => {
     vi.stubEnv("PAPERCLIP_CLOUD_TENANT_SERVER_TOKEN", "managed-fixture"); verifiedClaude();
     const result = readiness(); result.checks.push({ code: "provider_configuration_warning", level: "warn", message: "Check the selected provider configuration." }); runtimeProbe.mockResolvedValue(result);
