@@ -400,6 +400,7 @@ describe("TaskChatQueuedMessages", () => {
     expect(onInterrupt).not.toHaveBeenCalled();
     const send = container.querySelector<HTMLButtonElement>('[data-testid="task-chat-queued-interrupt-comment-1"]');
     expect(send?.textContent).toBe("Send");
+    expect(send?.getAttribute("aria-label")).toBe("Send queued messages");
     expect(send?.disabled).toBe(false);
     await act(async () => { send!.click(); });
     expect(onInterrupt).toHaveBeenCalledOnce();

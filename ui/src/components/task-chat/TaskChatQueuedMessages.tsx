@@ -150,6 +150,7 @@ function SortableQueuedMessage({
         <button
           type="button"
           onClick={onInterrupt}
+          aria-label={!queue.targetRunId ? "Send queued messages" : undefined}
           disabled={busy || !queue.queueId || !onInterrupt}
           title={queue.targetRunId ? "Interrupt the active turn and send queued messages" : "Send queued messages now"}
           className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"

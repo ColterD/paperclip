@@ -4337,7 +4337,7 @@ describe("TaskChatThread Paperclip Runner queue", () => {
     expect(occurrenceCount(queuedComment.body)).toBe(1);
   });
 
-  it.each(["run-1", null])("offers legacy interruption only with a live target (%s)", (targetRunId) => {
+  it.each(["run-1", null])("offers Interrupt for a live legacy queue and Send for a stopped queue (%s)", (targetRunId) => {
     const onInterruptQueued = vi.fn(async () => {});
     renderThread({
       comments: [
@@ -4372,14 +4372,11 @@ describe("TaskChatThread Paperclip Runner queue", () => {
     const interrupt = container.querySelector<HTMLButtonElement>(
       '[data-testid="task-chat-queued-interrupt-queued-prp-1"]',
     );
-    if (targetRunId) {
-      expect(interrupt).not.toBeNull();
-      flushSync(() => interrupt!.click());
-      expect(onInterruptQueued).toHaveBeenCalledWith(targetRunId);
-    } else {
-      expect(interrupt).toBeNull();
-      expect(onInterruptQueued).not.toHaveBeenCalled();
-    }
+    expect(interrupt).not.toBeNull();
+    expect(interrupt!.textContent).toBe(targetRunId ? "Interrupt" : "Send");
+    expect(onInterruptQueued).not.toHaveBeenCalled();
+    flushSync(() => interrupt!.click());
+    expect(onInterruptQueued).toHaveBeenCalledWith(targetRunId);
   });
 
   it("cancels an optimistic queued row locally before server acknowledgement", async () => {
