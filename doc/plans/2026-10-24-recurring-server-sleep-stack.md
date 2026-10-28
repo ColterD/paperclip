@@ -17,7 +17,7 @@ Do not mark an item done from a timer removal or a green check alone.
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
 | 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Approval retention [#17497](https://github.com/paperclipai/paperclip/pull/17497) and archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged; other source retention pending |
 | 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479) merged; effects [#17482](https://github.com/paperclipai/paperclip/pull/17482) merged; targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) merged |
-| 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | #17554 repaired at `8c1d293d1a`; fresh CI/review in progress |
+| 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | [#17554](https://github.com/paperclipai/paperclip/pull/17554) merged after all checks and both 5/5 reviews |
 | 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Slices 02–07 merged: [secret proposals](https://github.com/paperclipai/paperclip/pull/17446), [credentials](https://github.com/paperclipai/paperclip/pull/17450), [review expiry](https://github.com/paperclipai/paperclip/pull/17453), [approved recovery](https://github.com/paperclipai/paperclip/pull/17454), [interrupted claims](https://github.com/paperclipai/paperclip/pull/17458), [projection](https://github.com/paperclipai/paperclip/pull/17468) |
 | 08 | GitHub connection events and continuity | Event discovery/replay and credential continuity separately | Pending |
 | 09 | Merged-PR confirmations | Candidate writes, webhook activation where supported, outstanding-candidate fallback | Pending |
@@ -1533,3 +1533,13 @@ baselines, real concurrency proof, and fresh-database verification. Older stack
 status and test counts above are historical. The original remaining inventory
 is still in scope beyond the 65 published numbered slices; native backups and
 the remaining aggregate duties have not been migrated by this follow-up.
+
+## Receiver follow-up with current Discord parent, October 27
+
+Nineteen sleep PRs are merged through health #17554. Receiver discovery #17572
+now includes current Discord parent `cedf2030c4`, retaining the original 27-file
+scope. Its existing slow-failure and stop-wake repairs have guarded mutation
+proofs, 131 targeted cases pass, and both newly supported external fixtures
+self-migrate. See [the owning audit](2026-10-25-chat-receiver-discovery-sleep-audit.md#current-parent-and-review-acceptance-october-27)
+for exact evidence and the older CI runner-loss failure. Fresh CI/reviews and
+parent landing are still required. The original remaining-duty inventory is unchanged.

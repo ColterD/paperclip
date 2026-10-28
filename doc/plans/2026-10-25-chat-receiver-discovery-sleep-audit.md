@@ -271,3 +271,48 @@ All 20 receiver lifecycle cases and the server production typecheck pass on the
 owning branch. This changes one coordinator registration and adds no provider
 branch, queue, table, or independent timer. Current-head CI and combined-stack
 verification remain separate gates.
+
+## Current-parent and review acceptance, October 27
+
+The branch normally integrates Discord parent #17557 at
+`cedf2030c49c3650a41b76a4767176fd78170819` through `3e957d1204`. Only the
+original 27 receiver-owned paths differ from that parent. Health #17554 is now
+merged; company cleanup #17561 and Discord #17557 still precede this slice.
+Older stack status above describes its recorded source revision.
+
+The latest old review summaries still mention the delay and redundant-stop
+findings, but the actual source already contains their repairs: stop-wake
+suppression at `1604a9fcba` and the error-deadline registration at `ab56393acc`.
+Both were revalidated on the integrated parent rather than duplicated. A guarded
+mutation removing `nextRunAtOnError` fails the 1,100 ms slow-provider next-deadline
+assertion. The expected error also remains visible in teardown after that early
+assertion. A separate mutation reenabling discovery-initiated stop notification
+fails the real company-removal producer assertion with two inventory reads
+instead of one. Both source files are restored byte for byte after the checks.
+Normal worker and real producer suites pass with the original fixes.
+
+The two newly supported external-database fixtures initially skipped migrations.
+Actual worker reconstruction and Photon transport-loss cases failed on separate
+empty PostgreSQL 17 databases with missing-table errors. Both fixtures now apply
+pending migrations before client use. On those same initially empty databases,
+the complete receiver file passes all 20 cases and the complete Photon channel
+file passes all 20 cases. Existing embedded setup and safety validation remain.
+
+Current acceptance: five complete receiver/coordinator/batching/startup/GitHub
+error-projection suites pass 99 cases. Twelve actual Discord automatic-command,
+receiver configure/rotation/pause/resume/removal, ownership-loss/takeover, and Slack
+held-transaction cases pass separately; 1,581 other chat integration cases are
+not counted as run. With the 20 Photon cases this is 131 distinct targeted cases.
+The large chat producer suite uses a separate migrated clone. Server production
+typecheck and build pass on the integrated source; the later fixture-only changes
+add migration setup and do not change production code. Startup listener-count
+warnings and expected controlled provider failures remain in the logs.
+
+Required CI at the older `ab56393acc` head failed server shard 12. GitHub's
+check-run annotation says the self-hosted runner lost communication with the
+server; its grouped-test step is marked cancelled. The retained log ends without
+a failed assertion or final test summary. That annotation does not establish the
+underlying host, resource, or network cause, and the interrupted job is not a
+passing result. The new parent integration and fixture repairs require a fresh
+full CI run; local passes do not replace it. Fresh exact-head Greptile and
+Ponytail reviews remain mandatory. No deployed sleep or full local suite is claimed.

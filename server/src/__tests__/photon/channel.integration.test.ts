@@ -23,6 +23,7 @@ import {
 } from "@photon-ai/advanced-imessage";
 import { and, eq, sql } from "drizzle-orm";
 import {
+  applyPendingMigrations,
   createDb,
   companies,
   agents,
@@ -87,6 +88,7 @@ describe("iMessage Photon channel control plane", () => {
   beforeAll(async () => {
     const external = resolveExternalTestDatabaseUrl("PAPERCLIP_PHOTON_TEST_DATABASE_URL");
     if (!external) database = await startEmbeddedPostgresTestDatabase("paperclip-photon-");
+    if (external) await applyPendingMigrations(external);
     db = createDb(external ?? database!.connectionString);
     secrets = await mkdtemp(path.join(tmpdir(), "photon-secrets-"));
     process.env.PAPERCLIP_SECRETS_MASTER_KEY_FILE = path.join(

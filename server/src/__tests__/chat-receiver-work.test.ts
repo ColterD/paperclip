@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq, sql } from "drizzle-orm";
-import { agents, chatEndpoints, chatEndpointLeases, companies, createDb, toolApplications, toolConnections } from "@paperclipai/db";
+import { applyPendingMigrations, agents, chatEndpoints, chatEndpointLeases, companies, createDb, toolApplications, toolConnections } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { resolveExternalTestDatabaseUrl } from "./helpers/external-test-database.js";
 import { createDeliveryWorkCoordinator } from "../services/delivery-work-coordinator.js";
@@ -22,6 +22,7 @@ const support = external ? { supported: true } : await getEmbeddedPostgresTestSu
   const reconcile = vi.fn(async (_id: string): Promise<"owned" | "foreign"> => "owned"), stop = vi.fn(async (_id: string) => {});
   beforeAll(async () => {
     if (!external) temporary = await startEmbeddedPostgresTestDatabase("chat-receivers-");
+    if (external) await applyPendingMigrations(external);
     db = createDb(external ?? temporary!.connectionString, { maxConnections: 6, idleTimeoutSeconds: 0, maxLifetimeSeconds: 0 });
   }, 60_000);
   beforeEach(async () => {
