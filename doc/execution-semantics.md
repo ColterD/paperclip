@@ -1819,6 +1819,8 @@ cannot certify that an older native provider stopped. Native execution recovery
 records remain eligible across that boundary, so the next message must still
 pass the existing process, controller, workspace and lease cleanup checks. A
 verified stop can retire the hold for new input; prior outcomes stay recorded.
+Send also checks the native predecessor when no recovery record exists. A later
+context-reset record cannot hide that predecessor or its stop requirements.
 
 An explicit queued-message Interrupt also grants one scoped cleanup retry for
 the stopped run. Old ephemeral leases whose cleanup predates provider stop

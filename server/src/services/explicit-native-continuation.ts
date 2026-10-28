@@ -240,7 +240,7 @@ export async function admitExplicitNativeContinuation(input: {
   if (nativeQueuedSend) {
     const [latest] = await db.select({ id: heartbeatRuns.id, status: heartbeatRuns.status, runtimeMode: heartbeatRuns.runtimeMode })
       .from(heartbeatRuns).where(and(eq(heartbeatRuns.companyId, companyId), eq(heartbeatRuns.agentId, agentId),
-        boundary ? gt(heartbeatRuns.createdAt, boundary.createdAt) : undefined,
+        eq(heartbeatRuns.runtimeMode, "native"),
         or(eq(heartbeatRuns.nativeIssueId, issueId), eq(heartbeatRuns.issueId, issueId),
           sql`${heartbeatRuns.contextSnapshot}->>'issueId' = ${issueId}`)))
       .orderBy(desc(heartbeatRuns.createdAt), desc(heartbeatRuns.id)).limit(1);

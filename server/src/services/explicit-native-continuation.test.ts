@@ -2245,6 +2245,21 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
       } finally { verify.mockRestore(); await settings.updateExperimental(previous); }
     });
 
+  it.each(["live", "stopped"])("checks the native predecessor after reset even without a recovery record: %s", async state => {
+    const f = await seed(), queueId = randomUUID(), boundaryId = randomUUID();
+    await db.delete(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, f.issueId));
+    await db.update(heartbeatRuns).set({ createdAt: new Date("2026-09-11T09:00:00Z"), processPid: state === "live" ? process.pid : 999999999 }).where(eq(heartbeatRuns.id, f.sourceRunId));
+    await db.insert(issueComments).values({ id: boundaryId, companyId: f.companyId, issueId: f.issueId, authorType: "user", authorUserId: "board", body: "/new", createdAt: new Date("2026-09-11T10:30:00Z") });
+    await db.update(issues).set({ conversationAgentId: f.agentId, conversationUserId: "board", conversationState: "active", conversationBoundaryCommentId: boundaryId }).where(eq(issues.id, f.issueId));
+    await db.insert(heartbeatRuns).values({ companyId: f.companyId, agentId: f.agentId, issueId: f.issueId, runtimeMode: "legacy", status: "succeeded", createdAt: new Date("2026-09-11T10:30:01Z"), finishedAt: new Date("2026-09-11T10:30:02Z"), contextSnapshot: { issueId: f.issueId, wakeCommentId: boundaryId } });
+    await db.insert(agentWakeupRequests).values({ id: queueId, companyId: f.companyId, agentId: f.agentId, source: "on_demand", reason: "issue_commented", status: "deferred_issue_execution",
+      payload: { issueId: f.issueId, _paperclipWakeContext: { wakeCommentIds: [f.commentId] }, queuedCommentInterrupt: { actorId: "board", requestedAt: "2026-09-11T11:30:00Z" } } });
+    const blocked: string[] = [];
+    const continuation = await db.transaction(tx => admitExplicitNativeContinuation({ ...f, db: tx as unknown as typeof db, queuedCommentInterruptId: queueId, onBlocked: reason => blocked.push(reason) }));
+    if (state === "live") { expect(continuation).toBeNull(); expect(blocked).toEqual(["process_running"]); }
+    else { expect(continuation).toMatchObject({ previousRunId: f.sourceRunId }); expect(blocked).toEqual([]); }
+  });
+
   it("dispatches a fresh native Send after a committed failed result without a recovery action", async () => {
     const f = await seed(), resultId = await seedResultBeforeTerminalFailure(f), queueId = randomUUID();
     await db.delete(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, f.issueId));
