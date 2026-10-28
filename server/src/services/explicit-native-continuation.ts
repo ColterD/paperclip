@@ -223,13 +223,14 @@ export async function admitExplicitNativeContinuation(input: {
     )),
   )).for("update");
   const sourceChecks = actions.map(action => ({ cause: action.cause, evidence: action.evidence }));
-  if (!sourceChecks.length && nativeQueuedSend) {
+  if (nativeQueuedSend) {
     const [latest] = await db.select({ id: heartbeatRuns.id, status: heartbeatRuns.status, runtimeMode: heartbeatRuns.runtimeMode })
       .from(heartbeatRuns).where(and(eq(heartbeatRuns.companyId, companyId), eq(heartbeatRuns.agentId, agentId),
         or(eq(heartbeatRuns.nativeIssueId, issueId), eq(heartbeatRuns.issueId, issueId),
           sql`${heartbeatRuns.contextSnapshot}->>'issueId' = ${issueId}`)))
       .orderBy(desc(heartbeatRuns.createdAt), desc(heartbeatRuns.id)).limit(1);
-    if (latest?.runtimeMode === "native" && latest.status === "cancelled") {
+    if (latest?.runtimeMode === "native" && ["cancelled", "failed"].includes(latest.status) &&
+        !sourceChecks.some(source => (source.evidence.runId ?? source.evidence.sourceRunId) === latest.id)) {
       sourceChecks.push({ cause: "native_continuation_requires_reconciliation", evidence: { runId: latest.id } });
     }
   }

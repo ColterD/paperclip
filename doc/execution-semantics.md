@@ -2144,7 +2144,9 @@ The Send click also covers saved question answers and confirmation responses.
 Admission checks the last native Stop's process, workspace and cleanup receipts
 even when no recovery action exists. Its continuation authority is recorded on
 the exact queue receipt and verified again at dispatch. A deferred response keeps
-its messages and controls visible and explains the current wait.
+its messages and controls visible and explains the current wait. Historical
+recovery actions cannot stand in for the newest failed or cancelled native run:
+Send checks that run's controller, process, lease and cleanup proofs as well.
 
 A live plan Interrupt binds the click to its target run and the exact operator
 cancellation receipt. Its click may precede that run's stop time, but cannot

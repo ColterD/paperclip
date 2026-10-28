@@ -424,6 +424,26 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
     else expect(result).toBeNull();
     expect((await db.select().from(issueComments).where(eq(issueComments.id, f.commentId)))[0].authorUserId).toBe("original-author");
   });
+  it.each(["clean", "pending", "live_process", "controller"])("checks the latest native Stop despite an older resolved recovery action: %s", async kind => {
+    const f = await seed(), latestId = randomUUID(), queueId = randomUUID();
+    await db.update(heartbeatRuns).set({ createdAt: new Date("2026-09-11T08:00:00Z") }).where(eq(heartbeatRuns.id, f.sourceRunId));
+    await db.insert(heartbeatRuns).values({ id: latestId, companyId: f.companyId, agentId: f.agentId, nativeIssueId: f.issueId,
+      runtimeMode: "native", status: "cancelled", errorCode: "cancelled", processPid: kind === "live_process" ? process.pid : 999999999,
+      contextSnapshot: { issueId: f.issueId }, createdAt: new Date("2026-09-11T10:15:00Z"), finishedAt: new Date("2026-09-11T10:30:00Z") });
+    await db.insert(nativeRunFinalizations).values({ runId: latestId, companyId: f.companyId, issueId: f.issueId,
+      phase: "terminal_failure", leaseOwner: kind === "controller" ? "active-controller" : null });
+    const lease = { id: randomUUID(), companyId: f.companyId, heartbeatRunId: latestId, provider: kind === "live_process" ? "local" : "daytona", providerLeaseId: randomUUID() };
+    await db.insert(environmentLeases).values({ ...lease, status: kind === "pending" ? "pending_cleanup" : "released", releasedAt: new Date(),
+      cleanupStatus: kind === "pending" ? "failed" : "success", metadata: { remoteExecutionTermination: remoteTerminationReceipt(lease, { providerLeaseId: lease.providerLeaseId, state: "destroyed" }) } });
+    await db.insert(agentWakeupRequests).values({ id: queueId, companyId: f.companyId, agentId: f.agentId, source: "on_demand", reason: "issue_commented",
+      status: "deferred_issue_execution", payload: { issueId: f.issueId, _paperclipWakeContext: { wakeCommentIds: [f.commentId] },
+        queuedCommentInterrupt: { actorId: "board", requestedAt: "2026-09-11T11:30:00Z" } } });
+    const result = await db.transaction(tx => admitExplicitNativeContinuation({ ...f, db: tx as unknown as typeof db, queuedCommentInterruptId: queueId, dryRun: true }));
+    if (kind === "clean") expect(result).toMatchObject({ previousRunId: latestId });
+    else expect(result).toBeNull();
+    await db.delete(environmentLeases).where(eq(environmentLeases.id, lease.id));
+  });
+
   it.each(["clean", "pending", "missing_receipt", "wrong_resource", "controller", "workspace_owner", "cleanup_in_flight"])("checks native Stop cleanup without a recovery action: %s", async kind => {
     const f = await seed(), queueId = randomUUID();
     await db.delete(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, f.issueId));
