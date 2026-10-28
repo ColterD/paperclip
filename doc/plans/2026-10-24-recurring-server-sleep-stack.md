@@ -1105,3 +1105,19 @@ claimed ready based only on local tests, and no merge is authorized.
 After join retention, migrate the remaining attention source owners separately:
 decisions, interactions, recovery actions, reviews, and other source kinds. Keep
 the full original server inventory and later aggregate-tick retirement in scope.
+
+
+Slice 15 review repair: approval and join retention share the bounded archive
+sweep; owners retain eligibility and source-row locks. SQL deadlines round up
+from database precision. Unseen join controls materialize state atomically in
+the existing retention boundary. Five real regressions failed then passed. The
+initial timing-only concurrency test failed to detect a missing lock; it now
+observes the actual database wait, passes normally and rejects lock removal.
+Archive-first committed activity remains archived until explicit revival.
+
+All 340 cases across nine complete suites (31 approval/22 join worker cases),
+server types/build, migration checks and schema drift pass at `405c7dcdef`.
+All six isolated database fixtures pass actual migration apply/replay. Index 0393
+is generated after 391 unchanged parent entries; five snapshots remain. Parent
+`0b0e844b77` adds only four Runner E2E accounting files and ledger changes; runtime
+and acceptance sources are unchanged. Fresh publication checks/reviews required.
