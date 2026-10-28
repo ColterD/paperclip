@@ -21,7 +21,7 @@ import {
   environmentLeases, heartbeatRuns, issueComments, issueRecoveryActions,
   issues, nativeRunFinalizations, nativeRunResults, type Db,
 } from "@paperclipai/db";
-import { executionBlockerPredicate, getExecutionBlocker, hasPendingRunCleanup } from "./execution-blocker.js";
+import { executionBlockerPredicate, getExecutionBlocker, hasPendingRunCleanup, nativeExecutionRecoveryActionPredicate } from "./execution-blocker.js";
 import { buildExecutionContinuation } from "./execution-continuation.js";
 import { adapterExecutionControls } from "./adapter-execution-control.js";
 import { persistActivity } from "./activity-log.js";
@@ -220,7 +220,7 @@ export async function admitExplicitNativeContinuation(input: {
   )).where(and(eq(issues.companyId, companyId), eq(issues.id, issueId), sql`${issues.conversationAgentId} is not null`)).limit(1);
   const actions = await db.select().from(issueRecoveryActions).where(and(
     eq(issueRecoveryActions.companyId, companyId), eq(issueRecoveryActions.sourceIssueId, issueId),
-    boundary ? or(gt(issueRecoveryActions.createdAt, boundary.createdAt),
+    boundary ? or(gt(issueRecoveryActions.createdAt, boundary.createdAt), nativeExecutionRecoveryActionPredicate(),
       blocker?.recoveryActionId ? eq(issueRecoveryActions.id, blocker.recoveryActionId) : undefined) : undefined,
     or(executionBlockerPredicate(), and(
       inArray(issueRecoveryActions.cause, ["native_workspace_sync_out_unrecoverable", "native_workspace_sync_out_retry_exhausted"]),

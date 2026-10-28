@@ -2188,6 +2188,8 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
         await db.insert(issueComments).values({ id: boundaryId, companyId: f.companyId, issueId: f.issueId, authorType: "user", authorUserId: "board", body: "/new", createdAt: new Date("2026-09-11T10:30:00Z") });
         await db.update(issues).set({ conversationAgentId: f.agentId, conversationUserId: "board", conversationState: "active", conversationBoundaryCommentId: boundaryId }).where(eq(issues.id, f.issueId));
         await db.update(issueRecoveryActions).set({ createdAt: new Date("2026-09-11T09:00:00Z") }).where(eq(issueRecoveryActions.sourceIssueId, f.issueId));
+        const [source] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, f.sourceRunId));
+        expect(await recordNativeLocalProcessStop(db, source)).toBe(true);
         await db.update(heartbeatRuns).set({ processPid: null }).where(eq(heartbeatRuns.id, f.sourceRunId));
         if (scenario === "after_reset_workspace_hold") {
           await db.update(heartbeatRuns).set({ processPid: 999999999, resultJson: { workspaceRestoreFailure: "restore_unsafe_archive" } }).where(eq(heartbeatRuns.id, f.sourceRunId));
@@ -2195,16 +2197,53 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
         }
       }
       const blocker = await getExecutionBlocker(db, f.companyId, f.issueId);
-      if (scenario === "after_reset_workspace_hold") expect(blocker).not.toBeNull(); else expect(blocker).toBeNull();
+      if (scenario === "completed") expect(blocker).toBeNull(); else expect(blocker).not.toBeNull();
       await db.insert(heartbeatRuns).values({ companyId: f.companyId, agentId: f.agentId, status: "running" });
       const wake = await heartbeatService(db).wakeup(f.agentId, { source: "on_demand", triggerDetail: "manual", reason: "issue_commented",
         requestedByActorType: "user", requestedByActorId: "board", payload: { issueId: f.issueId, commentId: f.commentId },
         contextSnapshot: { source: "issue.comment", issueId: f.issueId, wakeCommentId: f.commentId },
       });
       if (scenario === "after_reset_workspace_hold") expect(wake).toBeNull();
-      else { expect(wake).not.toBeNull(); expect(wake).toMatchObject({ status: "queued" }); }
+      else { expect(wake).not.toBeNull(); expect(wake).toMatchObject({ status: "queued" }); expect(await getExecutionBlocker(db, f.companyId, f.issueId)).toBeNull(); }
     } finally { await settings.updateExperimental(previous); }
   });
+
+  it.each(["live_process", "missing_identity", "quarantined", "verified", "remote_cleanup", "controller"])(
+    "keeps native stop and cleanup checks after an applied chat reset: %s", async scenario => {
+      const f = await seed(), settings = instanceSettingsService(db), previous = await settings.getExperimental();
+      const retire = vi.fn(() => true);
+      const verify = vi.spyOn(nativeExecutor, "verifyStoppedNativeSessionForContinuation").mockResolvedValue(
+        scenario === "verified" ? { evidence: { runId: f.sourceRunId, schema: "paperclip.stopped_native_conversation.v1" }, retire } : null);
+      try {
+        await settings.updateExperimental({ enableAgentChat: true });
+        const boundaryId = randomUUID();
+        await db.insert(issueComments).values({ id: boundaryId, companyId: f.companyId, issueId: f.issueId, authorType: "user", authorUserId: "board", body: "/new", createdAt: new Date("2026-09-11T10:30:00Z") });
+        await db.update(issues).set({ conversationAgentId: f.agentId, conversationUserId: "board", conversationState: "active", conversationBoundaryCommentId: boundaryId }).where(eq(issues.id, f.issueId));
+        await db.update(issueRecoveryActions).set({ createdAt: new Date("2026-09-11T09:00:00Z") }).where(eq(issueRecoveryActions.sourceIssueId, f.issueId));
+        await db.update(heartbeatRuns).set({ createdAt: new Date("2026-09-11T09:00:00Z"),
+          processPid: scenario === "live_process" ? process.pid : scenario === "missing_identity" ? null : 999999999,
+          errorCode: "native_session_cleanup_quarantined",
+        }).where(eq(heartbeatRuns.id, f.sourceRunId));
+        if (scenario === "remote_cleanup") await db.insert(environmentLeases).values({ companyId: f.companyId, heartbeatRunId: f.sourceRunId, provider: "daytona", providerLeaseId: "old-chat-environment", status: "active", leasePolicy: "ephemeral" });
+        if (scenario === "controller") await db.update(nativeRunFinalizations).set({ leaseOwner: "old-controller" }).where(eq(nativeRunFinalizations.runId, f.sourceRunId));
+        await db.insert(heartbeatRuns).values({ companyId: f.companyId, agentId: f.agentId, status: "running" });
+        const wake = await heartbeatService(db).wakeup(f.agentId, { source: "on_demand", triggerDetail: "manual", reason: "issue_commented",
+          requestedByActorType: "user", requestedByActorId: "board", payload: { issueId: f.issueId, commentId: f.commentId },
+          contextSnapshot: { source: "issue.comment", issueId: f.issueId, wakeCommentId: f.commentId },
+        });
+        if (scenario === "verified") {
+          expect(wake).toMatchObject({ status: "queued" });
+          expect(retire).toHaveBeenCalledOnce();
+          expect(await getExecutionBlocker(db, f.companyId, f.issueId)).toBeNull();
+        } else {
+          expect(wake).toBeNull();
+          const [saved] = await db.select().from(agentWakeupRequests).where(and(eq(agentWakeupRequests.companyId, f.companyId), eq(agentWakeupRequests.reason, "issue_commented")));
+          expect(saved).toMatchObject({ status: "deferred_issue_execution", runId: null });
+          expect(await getExecutionBlocker(db, f.companyId, f.issueId)).not.toBeNull();
+          expect(retire).not.toHaveBeenCalled();
+        }
+      } finally { verify.mockRestore(); await settings.updateExperimental(previous); }
+    });
 
   it("dispatches a fresh native Send after a committed failed result without a recovery action", async () => {
     const f = await seed(), resultId = await seedResultBeforeTerminalFailure(f), queueId = randomUUID();

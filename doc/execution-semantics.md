@@ -1814,6 +1814,12 @@ comments already delivered to the failed run. A plain operator Stop still
 requires a new user action. The successor guard is scoped to the same agent so
 another agent's review participation keeps its independent recovery path.
 
+Agent Chat `/new` can clear provider context without launching a provider. It
+cannot certify that an older native provider stopped. Native execution recovery
+records remain eligible across that boundary, so the next message must still
+pass the existing process, controller, workspace and lease cleanup checks. A
+verified stop can retire the hold for new input; prior outcomes stay recorded.
+
 An explicit queued-message Interrupt also grants one scoped cleanup retry for
 the stopped run. Old ephemeral leases whose cleanup predates provider stop
 receipts are rechecked through the recorded provider teardown path. Retained
