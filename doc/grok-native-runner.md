@@ -26,6 +26,11 @@ acknowledgement and the effective model before a prompt. A lazy restored handle
 must connect through read-only native session inspection first. Reapplying the
 bound metadata on restore prevents Grok from resetting effort to its default.
 Missing configuration, a rejected value, or effort drift stops admission.
+Admission failures keep a closed Grok reason code through the sidecar boundary.
+Other startup failures retain their closed admission stage when no more specific
+known error code is available. These diagnostics contain no native payload,
+credential, arbitrary provider message, or workspace path. They do not change
+admission or retry policy.
 Omitting effort retains Grok's provider default. This setting remains outside
 the model-visible task prompt. Historical execution inputs retain their schemas.
 

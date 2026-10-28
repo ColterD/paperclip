@@ -93,10 +93,15 @@ let pendingPermission = await readFile(
 let permissionStyle = "v2";
 
 await mkdir(process.env.XDG_DATA_HOME, { recursive: true });
+await writeFile(join(process.env.XDG_DATA_HOME, "fake-provider-custody.json"), JSON.stringify({
+  openrouterKey: process.env.OPENROUTER_API_KEY,
+  providerOptions: runtimeConfig.provider?.openrouter?.options,
+}));
 await writeFile(
   join(process.env.XDG_DATA_HOME, "fake-environment.json"),
   JSON.stringify({
     keys: Object.keys(process.env).sort(),
+    noProxy: process.env.NO_PROXY,
     home: process.env.HOME,
     configHome: process.env.XDG_CONFIG_HOME,
     projectConfigDisabled: process.env.OPENCODE_DISABLE_PROJECT_CONFIG,

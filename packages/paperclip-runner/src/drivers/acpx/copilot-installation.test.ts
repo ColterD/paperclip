@@ -87,9 +87,26 @@ vi.mock("./installation-integrity.js", () => ({ verifyNativeAcpxInstallation: vi
 
 describe("Copilot build-owned installation", () => {
   it("admits the current profile with environment launch preparation", () => {
-    expect(QUALIFIED_ACPX_PROFILES.copilot.agentProfileVersion).toBe(69);
+    expect(QUALIFIED_ACPX_PROFILES.copilot.agentProfileVersion).toBe(70);
     expect(QUALIFIED_ACPX_PROFILES.copilot.qualificationStatus).toBeUndefined();
-    expect(QUALIFIED_ACPX_PROFILES.copilot.commandDigest).toBe("sha256:5444547ca83543bc899ae5a8a2e895c19a86559339e60a1970786ce900742719");
+    expect(QUALIFIED_ACPX_PROFILES.copilot.commandDigest).toBe("sha256:618c3b69bc98b9a7e3c1b3411700eab8b90fd9245ba35d0bc85484319247fdbc");
+  });
+
+  it("preserves v69 while binding closed startup diagnostics in v70", async () => {
+    const bytes = readFileSync(new URL("../../../test/fixtures/copilot-profile-v69-identity.json", import.meta.url));
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe("a878caa5f40cfad517e852384507b50c1098e219f1dd6822335b1119b03eaea5");
+    const prior = JSON.parse(bytes.toString("utf8"));
+    const current = JSON.parse(readFileSync(new URL("../../../test/fixtures/copilot-profile-v70-identity.json", import.meta.url), "utf8"));
+    expect(Object.keys(current.declaration).filter(key => current.declaration[key] !== prior.declaration[key]).sort()).toEqual([
+      "admissionDiagnosticsSourceSha256", "agentProfileVersion", "grokAdmissionSourceSha256",
+      "profileCompatibilitySourceSha256", "runtimeHostSourceSha256", "sidecarErrorSourceSha256",
+    ]);
+    for (const [name, field] of [["admission-diagnostics.ts", "admissionDiagnosticsSourceSha256"], ["grok-effort.ts", "grokAdmissionSourceSha256"]]) {
+      expect(current.declaration[field]).toBe(createHash("sha256").update(readFileSync(new URL(name!, import.meta.url))).digest("hex"));
+    }
+    expect(isSupportedAcpxProfileVersion("copilot", 69)).toBe(true);
+    await expect(verifyCopilotInstallation({ ...QUALIFIED_ACPX_PROFILES.copilot,
+      agentProfileVersion: 69, commandDigest: prior.commandDigest })).rejects.toThrow("exact pinned");
   });
 
   it("preserves published and candidate history while binding native Grok admission in v69", async () => {

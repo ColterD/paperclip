@@ -951,3 +951,19 @@ this eval project. Keep it limited to the trusted harness/provider runtime;
 never expose it to test prompts or unrelated clients. The project check is not
 an attempt-isolation guarantee. Indexing verification is a separate retained
 or scheduled check; the manual launcher alone does not perform it.
+
+### Hosted report dependencies
+
+The trusted report job applies a reviewed `report-lock.patch` before its frozen
+install. `report-lock.json` pins the input lock, patch and resulting lock hashes.
+This updates existing patch identities and the already declared yaml dependency
+without registry resolution. The worker target and its lock artifact never
+control report dependencies. An unknown committed lock fails before install;
+update and review this correction when dependency inputs change. The original
+failed run remains failed when retained evidence gets a new presentation.
+
+The trusted authorization job checks this correction before catalog/build and
+paid work. Unknown dependency locks fail before model admission. Manual history
+publication applies the same correction before its frozen install. Qualification
+image builds apply it only when target and workflow revisions match; a different
+target keeps its own lock and does not require these reporting helper files.

@@ -56,6 +56,10 @@ describe("public repository paid workflow security", () => {
     expect(manual).toContain('pnpm install --resolution-only --ignore-scripts --no-frozen-lockfile');
     expect(manual).toContain('PAPERCLIP_RUNNER_LOCK_SHA256=$lock_sha');
     expect(manual).toContain('docker logout ghcr.io');
+    expect(manual.indexOf('Apply reviewed qualification lock corrections')).toBeLessThan(manual.indexOf('Resolve source dependencies without lifecycle scripts'));
+    expect(manual).toContain('node tests/runner-e2e/prepare-report-lock.mjs');
+    expect(manual).toContain('if [ "$TARGET_SHA" = "$GITHUB_SHA" ]; then');
+
   });
 
   it("uses the reviewed master branch for the first-party trusted PR workflow", async () => {
@@ -275,7 +279,9 @@ describe("public repository paid workflow security", () => {
       "target_ref: ${{ steps.target.outputs.ref }}",
     );
     expect(authorizeJob).toContain('echo "ref=refs/heads/$TARGET_BRANCH"');
-    expect(authorizeJob).not.toContain("actions/checkout@");
+    expect(authorizeJob.match(/actions\/checkout@/gu)).toHaveLength(1);
+    expect(authorizeJob).toContain("ref: ${{ github.sha }}");
+    expect(authorizeJob).not.toContain("ref: ${{ needs.authorize.outputs.target_sha }}");
     expect(authorizeJob).not.toContain("pnpm install");
     expect(targetLockJob).toContain("name: Resolve target pnpm lockfile");
     expect(targetLockJob).toContain("needs: authorize");
@@ -537,8 +543,8 @@ describe("public repository paid workflow security", () => {
         /ref: \$\{\{ needs\.authorize\.outputs\.target_sha \}\}/g,
       ),
     ).toHaveLength(6);
-    expect(fullStack.match(/ref: \$\{\{ github\.sha \}\}/g)).toHaveLength(2);
-    expect(fullStack.match(/persist-credentials: false/g)).toHaveLength(8);
+    expect(fullStack.match(/ref: \$\{\{ github\.sha \}\}/g)).toHaveLength(3);
+    expect(fullStack.match(/persist-credentials: false/g)).toHaveLength(9);
     expect(fullStack).not.toContain("ref: ${{ inputs.target_branch }}");
     expect(fullStack).toContain(
       "PAPERCLIP_RUNNER_SOURCE_REVISION=${TARGET_SHA}",
@@ -553,11 +559,22 @@ describe("public repository paid workflow security", () => {
       "ref: ${{ needs.authorize.outputs.target_sha }}",
     );
     expect(reportJob).not.toContain("Download resolved target lockfile");
+    expect(reportJob).toContain("run: node tests/runner-e2e/prepare-report-lock.mjs");
+    expect(reportJob.indexOf("Apply reviewed reporting lock corrections")).toBeLessThan(reportJob.indexOf("Install pinned reporting dependencies"));
+    expect(reportJob).not.toContain("needs.target_lock.outputs");
+
     expect(historyJob).toContain("ref: ${{ github.sha }}");
     expect(historyJob).not.toContain(
       "ref: ${{ needs.authorize.outputs.target_sha }}",
     );
     expect(historyJob).not.toContain("Download resolved target lockfile");
+    expect(historyJob).toContain("run: node tests/runner-e2e/prepare-report-lock.mjs");
+    const authorization = fullStack.split("  authorize:\n")[1]!.split("  target_lock:\n")[0]!;
+    expect(authorization).toContain("ref: ${{ github.sha }}");
+    expect(authorization).toContain("Preflight reviewed report dependencies before paid admission");
+    expect(authorization).toContain("run: node tests/runner-e2e/prepare-report-lock.mjs");
+    expect(authorization).not.toContain("environment:");
+
     expect(fullStack).toContain(
       "if: always() && !cancelled() && needs.catalog.result == 'success'",
     );
@@ -964,6 +981,12 @@ it("keeps dependency resolution and shared caches out of Runner protocol archive
   }
   const builder = jobs.find(job => job.startsWith("  build_controller:"))!;
   expect(builder).not.toMatch(/id-token: write|environment:|secrets\./u);
+  const upload = builder.split("      - name: Retain the trusted controller code for every worker\n")[1]!.split("\n      - ")[0]!;
+  expect(upload).toContain("include-hidden-files: true");
+  expect(upload).toContain("id: upload");
+  expect(builder).toContain("artifact-ids: ${{ steps.upload.outputs.artifact-id }}");
+  expect(builder).toContain("run: node --test .github/tests/runner-controller-artifact-transport.test.mjs");
+  expect(builder).toContain("PAPERCLIP_CONTROLLER_RECEIPT_SHA256: ${{ steps.build.outputs.runtime_receipt_sha256 }}");
   const preparer = jobs.find(job => job.startsWith("  prepare_controller:"))!;
   expect(preparer).not.toMatch(/pnpm install/u);
   expect(preparer.indexOf("verify-runtime.mjs")).toBeLessThan(preparer.indexOf('hosted.mjs" prepare'));
