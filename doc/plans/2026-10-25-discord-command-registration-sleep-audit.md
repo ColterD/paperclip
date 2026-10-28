@@ -198,3 +198,10 @@ No production timeout, dispatch, or quiet predicate was relaxed. All 41 real
 PostgreSQL command ownership cases pass with the repair. Log:
 `/tmp/sleep19-settlement-tests.log`. Propagate this owner-level change through the
 stack; remote checks must verify the new heads.
+
+## Current-parent follow-up, October 27
+
+See [updated parent acceptance](../idle-discord-command-registration.md#updated-parent-acceptance-october-27)
+for normal integration of the repaired health and company-cleanup parents,
+127 targeted cases, corrected test selection, and the remaining remote gates.
+The source duty and its 26-file scope are unchanged.
