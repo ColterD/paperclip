@@ -9,12 +9,12 @@ export const QUALIFIED_ACPX_PROFILE_DATA = {
     "protocolVersion": 1,
     "acpxVersion": "0.13.1",
     "agent": "grok",
-    "agentProfileVersion": 1,
+    "agentProfileVersion": 6,
     "agentServerPackage": "builtin:grok-acp",
     "agentServerVersion": "1",
     "agentRuntimePackage": "native:grok",
     "agentRuntimeVersion": "1.0.13",
-    "commandDigest": "sha256:f0b698395a3704ed2ffaf84ea19bdb20c36c8a0a70b7c629c7b6ffe144e59e55",
+    "commandDigest": "sha256:93004d5a7647235e53ab741ba5639e8f20186ebaaccef8b9a7834593a1f5febe",
     "permissionPolicy": "interactive"
   },
   "pi": {
