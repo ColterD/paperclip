@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, sql } from "drizzle-orm";
 import { chatActions, chatDeliveries, chatEndpoints, createDb, startEmbeddedPostgresTestDatabase, type Db } from "@paperclipai/db";
 import { createChatConversationDeliveryQueue } from "../services/chat-channels/inbound/conversation-queue.js";
 import { pendingInboundWakeupCondition } from "../services/chat-channels/inbound/delivery-ledger.js";
@@ -77,9 +77,9 @@ describe("inbound queue discovery", () => {
     const ids = rows.map(row => row[0]);
     expect(ids).toContain(ready.id); expect(ids).toContain(stale.id);
     expect(ids).not.toContain(live.id); expect(ids).not.toContain(f.pending.id);
-    const complete = await db.select().from(chatDeliveries).where(eq(chatDeliveries.id, ready.id));
-    expect(JSON.stringify(rows)).toContain("complete payload");
-    expect(complete[0]?.normalizedEvent).toMatchObject({ message: { providerMessageId: "12" } });
+    const returned = rows.find(row => row[0] === ready.id)!;
+    const normalizedEventIndex = Object.keys(getTableColumns(chatDeliveries)).indexOf("normalizedEvent");
+    expect(returned[normalizedEventIndex]).toEqual(ready.normalizedEvent);
   });
 
   it("keeps provider sequence and final receipt ties for the actual head query", async () => {

@@ -183,8 +183,16 @@ const DELIVERY_PROCESSING_STALE_MS = 60_000;
   }
 
   function pendingInboundWakeupCondition(readyOnly = false): SQL {
-    if (readyOnly) {
-      return sql`exists (
+    if (!readyOnly) {
+      return sql`(${chatDeliveries.companyId}, ${chatDeliveries.endpointId}, ${chatDeliveries.id}) in (
+        select ${chatActions.companyId}, ${chatActions.endpointId}, ${chatActions.deliveryId}
+        from ${chatActions}
+        where ${chatActions.kind} = 'inbound_wakeup'
+          and ${chatActions.deliveryId} is not null
+          and ${chatActions.status} in ('issued', 'processing')
+      )`;
+    }
+    return sql`exists (
       select 1 from ${chatActions}
       where ${chatActions.deliveryId} = ${chatDeliveries.id}
         and ${chatActions.endpointId} = ${chatDeliveries.endpointId}
@@ -199,14 +207,6 @@ const DELIVERY_PROCESSING_STALE_MS = 60_000;
         )`
             : sql``
         }
-    )`;
-    }
-    return sql`(${chatDeliveries.companyId}, ${chatDeliveries.endpointId}, ${chatDeliveries.id}) in (
-      select ${chatActions.companyId}, ${chatActions.endpointId}, ${chatActions.deliveryId}
-      from ${chatActions}
-      where ${chatActions.kind} = 'inbound_wakeup'
-        and ${chatActions.deliveryId} is not null
-        and ${chatActions.status} in ('issued', 'processing')
     )`;
   }
 

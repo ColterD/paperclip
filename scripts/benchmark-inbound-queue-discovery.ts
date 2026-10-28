@@ -36,7 +36,7 @@ try {
   const oldQueue = await import(pathToFileURL(path.join(dir, "conversation-queue.ts")).href) as { createChatConversationDeliveryQueue: QueueFactory };
   const oldService = await import(pathToFileURL(path.join(dir, "chat-channels.ts")).href) as { chatChannelService: ServiceFactory };
   database = await startEmbeddedPostgresTestDatabase("inbound-discovery-benchmark-");
-  db = createDb(database.connectionString, { maxConnections: 1 });
+  db = createDb(database.connectionString, { maxConnections: 1, idleTimeoutSeconds: 0 });
   const [{ version }] = await db.$client.unsafe("select version()");
   const settings = await db.$client.unsafe("select name, setting from pg_settings where name in ('shared_buffers', 'work_mem', 'jit', 'jit_above_cost', 'jit_inline_above_cost', 'random_page_cost', 'max_connections') order by name");
   const results = [];
@@ -54,40 +54,46 @@ try {
         const after = await captureInboundQuery(db, f, kind);
         pairs.push({ kind, before, after });
       }
-      if (process.argv.includes("--wait-for-slot")) {
-        process.stderr.write(`READY ${fixture.name}: database seeded, all real queries captured; press Enter to time\n`);
-        await new Promise<void>(resolve => { process.stdin.once("data", () => { process.stdin.pause(); resolve(); }); process.stdin.resume(); });
-      }
-      for (const { kind, before, after } of pairs) {
-        const samples = { before: [] as number[], after: [] as number[] };
-        const expected = await runQuery(db, before);
-        assert.deepEqual(await runQuery(db, after), expected, `${fixture.name}/${kind}: complete positional output differs`);
-        for (let n = 0; n < 7; n++) {
-          for (const arm of n % 2 ? ["after", "before"] as const : ["before", "after"] as const) {
-            const start = performance.now();
-            await runQuery(db, arm === "before" ? before : after);
-            if (n >= 2) samples[arm].push(performance.now() - start);
+      const connection = await db.$client.reserve();
+      const timedDb = new Proxy(db, { get(target, key) { return key === "$client" ? connection : Reflect.get(target, key); } });
+      try {
+        if (process.argv.includes("--wait-for-slot")) {
+          process.stderr.write(`READY ${fixture.name}: database seeded, all real queries captured; press Enter to time\n`);
+          await new Promise<void>(resolve => { process.stdin.once("data", () => { process.stdin.pause(); resolve(); }); process.stdin.resume(); });
+        }
+        for (const { kind, before, after } of pairs) {
+          const samples = { before: [] as number[], after: [] as number[] };
+          const expected = await runQuery(timedDb, before);
+          assert.deepEqual(await runQuery(timedDb, after), expected, `${fixture.name}/${kind}: complete positional output differs`);
+          for (let n = 0; n < 7; n++) {
+            for (const arm of n % 2 ? ["after", "before"] as const : ["before", "after"] as const) {
+              const start = performance.now();
+              await runQuery(timedDb, arm === "before" ? before : after);
+              if (n >= 2) samples[arm].push(performance.now() - start);
+            }
           }
+          const plans = {} as Record<"before" | "after", unknown>;
+          const actionLoops = {} as Record<"before" | "after", number>;
+          for (const arm of ["before", "after"] as const) {
+            const query = arm === "before" ? before : after;
+            const [row] = await connection.unsafe(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${query.sql}`, query.params as never[]);
+            plans[arm] = row["QUERY PLAN"];
+            actionLoops[arm] = Math.max(0, ...nodes(row["QUERY PLAN"][0].Plan).filter(node => node["Relation Name"] === "chat_actions").map(node => Number(node["Actual Loops"])));
+          }
+          if (fixture.name === "retained-history") {
+            const oldPlan = (plans.before as { JIT?: unknown; Plan: Record<string, number> }[])[0]!;
+            const newPlan = (plans.after as { JIT?: unknown; Plan: Record<string, number> }[])[0]!;
+            const oldBuffers = Number(oldPlan.Plan["Shared Hit Blocks"] ?? 0) + Number(oldPlan.Plan["Shared Read Blocks"] ?? 0);
+            const newBuffers = Number(newPlan.Plan["Shared Hit Blocks"] ?? 0) + Number(newPlan.Plan["Shared Read Blocks"] ?? 0);
+            baselineExceedsWorkBudget ||= Boolean(oldPlan.JIT) || (kind === "deadline" && oldBuffers > 1000);
+            if (kind !== "ready" && newPlan.JIT) budgetFailures.push(`${kind}: unnecessary JIT on the retained-history fixture`);
+            if (kind === "deadline" && newBuffers > 1000) budgetFailures.push(`${kind}: ${newBuffers} shared buffer accesses exceeds fixture budget 1000`);
+          }
+          const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
+          results.push({ fixture, kind, equalPositionalRows: expected.length, before, after, samples, beforeMedianMs: median(samples.before), afterMedianMs: median(samples.after), actionLoops, plans });
+          process.stderr.write(`${fixture.name}/${kind}: ${median(samples.before).toFixed(2)} -> ${median(samples.after).toFixed(2)} ms; action scans ${actionLoops.before} -> ${actionLoops.after}\n`);
         }
-        const plans = {} as Record<"before" | "after", unknown>;
-        const actionLoops = {} as Record<"before" | "after", number>;
-        for (const arm of ["before", "after"] as const) {
-          const query = arm === "before" ? before : after;
-          const [row] = await db.$client.unsafe(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${query.sql}`, query.params as never[]);
-          plans[arm] = row["QUERY PLAN"];
-          actionLoops[arm] = Math.max(0, ...nodes(row["QUERY PLAN"][0].Plan).filter(node => node["Relation Name"] === "chat_actions").map(node => Number(node["Actual Loops"])));
-        }
-        if (fixture.name === "retained-history") {
-          const oldPlan = (plans.before as { JIT?: unknown; Plan: Record<string, number> }[])[0]!;
-          const newPlan = (plans.after as { JIT?: unknown; Plan: Record<string, number> }[])[0]!;
-          baselineExceedsWorkBudget ||= Boolean(oldPlan.JIT) || (kind === "deadline" && oldPlan.Plan["Shared Hit Blocks"]! > 1000);
-          if (kind !== "ready" && newPlan.JIT) budgetFailures.push(`${kind}: unnecessary JIT on the retained-history fixture`);
-          if (kind === "deadline" && newPlan.Plan["Shared Hit Blocks"]! > 1000) budgetFailures.push(`${kind}: ${newPlan.Plan["Shared Hit Blocks"]} shared buffers exceeds fixture budget 1000`);
-        }
-        const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
-        results.push({ fixture, kind, equalPositionalRows: expected.length, before, after, samples, beforeMedianMs: median(samples.before), afterMedianMs: median(samples.after), actionLoops, plans });
-        process.stderr.write(`${fixture.name}/${kind}: ${median(samples.before).toFixed(2)} -> ${median(samples.after).toFixed(2)} ms; action scans ${actionLoops.before} -> ${actionLoops.after}\n`);
-      }
+      } finally { connection.release(); }
       if (fixture.name === "small") {
         const unrelated = await f.delivery({ state: "filtered" });
         const other = await seedInboundDiscovery(db, 0);

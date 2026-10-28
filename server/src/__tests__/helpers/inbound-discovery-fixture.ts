@@ -26,7 +26,7 @@ export async function seedInboundDiscovery(db: Db, history = 20, payloadBytes = 
   async function delivery(overrides: Partial<typeof chatDeliveries.$inferInsert> = {}) {
     const id = randomUUID();
     const [row] = await db.insert(chatDeliveries).values({ id, companyId, endpointId, providerEventId: id, deduplicationKey: id,
-      eventKind: "message", state: "received", receivedAt: fixtureTime,
+      eventKind: "message", state: "received", receivedAt: fixtureTime, nextAttemptAt: fixtureTime,
       normalizedEvent: { conversation: { externalThreadId: threadId }, message: { providerSentAt: fixtureTime.toISOString(), providerMessageSequence: "2", text: payload } }, ...overrides }).returning();
     return row!;
   }
