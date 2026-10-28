@@ -400,6 +400,30 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
       for (const identity of identities) await db.delete(environmentLeases).where(eq(environmentLeases.id, identity.id));
     }
   });
+  it.each(["fresh", "predates_stop", "malformed", "wrong_actor", "provider_alive", "identity_missing", "no_click"])("requires fresh explicit Send intent for a stopped native queue: %s", async (kind) => {
+    const f = await seed(), queueId = randomUUID();
+    await db.update(heartbeatRuns).set({ status: "cancelled", errorCode: "cancelled",
+      processPid: kind === "provider_alive" ? process.pid : kind === "identity_missing" ? null : 999999999,
+    }).where(eq(heartbeatRuns.id, f.sourceRunId));
+    await db.update(issueComments).set({ authorUserId: "original-author", createdAt: new Date("2026-09-11T09:00:00Z") })
+      .where(eq(issueComments.id, f.commentId));
+    await db.insert(agentWakeupRequests).values({ id: queueId, companyId: f.companyId, agentId: f.agentId,
+      source: "automation", reason: "issue_execution_deferred", status: "deferred_issue_execution",
+      requestedByActorType: "system", requestedByActorId: "heartbeat",
+      payload: { issueId: f.issueId, _paperclipWakeContext: { wakeCommentIds: [f.commentId] },
+        ...(kind === "no_click" ? {} : { queuedCommentInterrupt: {
+          actorId: kind === "wrong_actor" ? "someone-else" : "board",
+          requestedAt: kind === "malformed" ? "invalid" : kind === "predates_stop" ? "2026-09-11T09:30:00Z" : "2026-09-11T11:00:00Z",
+        } }),
+      },
+    });
+    const blocked: string[] = [];
+    const result = await db.transaction(async tx => admitExplicitNativeContinuation({ ...f, db: tx as unknown as typeof db,
+      queuedCommentInterruptId: queueId, dryRun: true, onBlocked: reason => blocked.push(reason) }));
+    if (kind === "fresh") expect(result, JSON.stringify(blocked)).toMatchObject({ previousRunId: f.sourceRunId, commentId: f.commentId });
+    else expect(result).toBeNull();
+    expect((await db.select().from(issueComments).where(eq(issueComments.id, f.commentId)))[0].authorUserId).toBe("original-author");
+  });
   it("a durable queue interrupt authorizes older legacy messages but still requires the provider to stop", async () => {
     const f = await seed();
     await db.update(agents).set({ adapterType: "claude_local" }).where(eq(agents.id, f.agentId));

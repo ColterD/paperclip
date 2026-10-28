@@ -35,7 +35,7 @@ Agent access: [companion](../agent-access-map/steering.md).
 
 Open an assigned task (`/issues/:issueId`). Start work, then send follow-ups while
 the agent runs. Use the queued-message controls to edit, reorder, discard,
-steer, or interrupt when offered. Use the composer stop/pause control separately.
+steer, or interrupt when offered. After Stop, choose **Send** on a saved queue to explicitly continue it without recreating the messages or attachments. Native steering still requires an active turn; Send after Stop is a separate user decision. Use the composer stop/pause control separately.
 Both task presentations need attention when changing their shared behavior.
 
 ### `agent-chat`

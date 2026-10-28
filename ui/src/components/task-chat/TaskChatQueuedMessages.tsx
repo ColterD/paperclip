@@ -146,7 +146,7 @@ function SortableQueuedMessage({
         {label}
       </span>
 
-      {queue.targetRunId && (queue.protocol === "legacy" || entry.source?.requiresFreshSession ? (
+      {(queue.targetRunId || queue.state === "deferred") && (!queue.targetRunId || queue.protocol === "legacy" || entry.source?.requiresFreshSession ? (
         <button
           type="button"
           onClick={onInterrupt}
@@ -160,7 +160,7 @@ function SortableQueuedMessage({
           ) : (
             <CornerDownRight className="h-3.5 w-3.5" aria-hidden />
           )}
-          Interrupt
+          {queue.targetRunId ? "Interrupt" : "Send"}
         </button>
       ) : (
         <button
@@ -347,7 +347,9 @@ export function TaskChatQueuedMessages({
         action === "steer"
           ? "Message steered into the active turn."
           : action === "interrupt"
-            ? "Queued messages will be sent when the previous run has stopped."
+            ? queue.targetRunId
+              ? "Queued messages will be sent when the previous run has stopped."
+              : "Queued messages submitted. Waiting for the agent."
             : "Queued message discarded.",
       );
     } catch (error) {
@@ -365,7 +367,7 @@ export function TaskChatQueuedMessages({
           : action === "steer"
             ? "Couldn’t steer. Message is still queued."
             : action === "interrupt"
-              ? "Couldn’t interrupt. Message is still queued."
+              ? queue.targetRunId ? "Couldn’t interrupt. Message is still queued." : "Couldn’t send. Message is still queued."
               : code === "queued_comment_revision_conflict"
                 ? "The queue changed in another session. Review it and try again."
                 : "Couldn’t discard. Message is still queued.",

@@ -124,7 +124,7 @@ export async function admitExplicitNativeContinuation(input: {
   reason: string | null; commentId: string | null; successorRunId: string;
   failedRunId?: string | null;
   taskRetryRequestId?: string;
-  /** Server-recorded board intent to send an existing legacy message queue. */
+  /** Server-recorded board intent to send an existing message queue. */
   queuedCommentInterruptId?: string;
   /** Internal delivery of an unconsumed, user-authored saved queue entry. */
   queuedCommentRequestId?: string;
@@ -204,10 +204,15 @@ export async function admitExplicitNativeContinuation(input: {
     isNull(issueComments.deletedAt),
   ));
   if (!retry && !taskRetry && !response && !comment?.body.trim()) return null;
-  const authorizedAt = response?.comment.createdAt ?? comment?.createdAt ?? retryWake?.requestedAt ?? new Date();
   const [agent] = await db.select().from(agents).where(and(eq(agents.companyId, companyId), eq(agents.id, agentId)));
   if (!agent || (!isConversationAdapter(agent.adapterType) && agent.adapterType !== "paperclip_runner")) return null;
-  if (queuedInterrupt && !isConversationAdapter(agent.adapterType) && !response?.source.requiresFreshSession) return null;
+  const agentIsNative = agent.adapterType === "paperclip_runner";
+  const interruptIntent = interruptQueue?.payload?.queuedCommentInterrupt as Record<string, unknown> | undefined;
+  const interruptRequestedAt = typeof interruptIntent?.requestedAt === "string" ? new Date(interruptIntent.requestedAt) : null;
+  const nativeQueuedSend = queuedInterrupt && !response && agentIsNative;
+  if (nativeQueuedSend && (!interruptRequestedAt || !Number.isFinite(interruptRequestedAt.getTime()))) return null;
+  const authorizedAt = nativeQueuedSend ? interruptRequestedAt!
+    : response?.comment.createdAt ?? comment?.createdAt ?? retryWake?.requestedAt ?? new Date();
   const actions = await db.select().from(issueRecoveryActions).where(and(
     eq(issueRecoveryActions.companyId, companyId), eq(issueRecoveryActions.sourceIssueId, issueId),
     or(executionBlockerPredicate(), and(
@@ -246,6 +251,7 @@ export async function admitExplicitNativeContinuation(input: {
     if (!run || run.agentId !== agentId || !terminal.includes(run.status) ||
         (run.nativeIssueId ?? run.issueId ?? run.contextSnapshot?.issueId) !== issueId ||
         !run.finishedAt) return blocked("source_unavailable", "The previous execution has not finished or its owner changed. Your message is saved.");
+    if (nativeQueuedSend && authorizedAt <= run.finishedAt) return null;
     if (!queuedInterrupt && !queuedRequest && authorizedAt <= run.finishedAt) return blocked("message_predates_stop", "This message arrived before the previous run stopped. Send a new message to continue.");
     if (adapterExecutionControls.has(run.id)) return blocked("execution_settling", "Waiting for the previous run to stop. Your message will start automatically.");
     const unusedAdmission = run.status === "cancelled" && !run.startedAt &&
@@ -317,6 +323,7 @@ export async function admitExplicitNativeContinuation(input: {
         !(queuedRequest && run.runtimeMode === "native" &&
           (run.status !== "cancelled" || authorizedAt > run.finishedAt!)) &&
         !(queuedRequest && cancelledStartup && authorizedAt > run.finishedAt!) &&
+        !(nativeQueuedSend && (run.runtimeMode === "native" || cancelledStartup) && authorizedAt > run.finishedAt!) &&
         !(queuedInterrupt && response?.source.requiresFreshSession && run.runtimeMode === "native")) return null;
     // A saved native message sent after Stop is a new user direction. Older
     // input cannot restart a cancelled run merely because it is still queued.

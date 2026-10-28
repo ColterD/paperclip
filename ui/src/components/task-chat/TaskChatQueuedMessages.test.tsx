@@ -394,10 +394,15 @@ describe("TaskChatQueuedMessages", () => {
       ),
     ).toBeNull();
   });
-  it("hides Steer and Interrupt without a live target while leaving saved messages editable", () => {
-    render({ queue: { ...queue, targetRunId: null, protocol: "legacy", steeringDisposition: "unsupported" } });
-    expect(container.textContent).toContain("First queued message");
-    expect(container.querySelector('[data-testid="task-chat-queued-interrupt-comment-1"]')).toBeNull();
+  it.each(["legacy", "paperclip_runner_v1"] as const)("sends a saved %s queue explicitly after Stop", async (protocol) => {
+    const onInterrupt = vi.fn().mockResolvedValue(undefined);
+    render({ queue: { ...queue, targetRunId: null, protocol, steeringDisposition: "temporarily_unavailable" }, onInterrupt });
+    expect(onInterrupt).not.toHaveBeenCalled();
+    const send = container.querySelector<HTMLButtonElement>('[data-testid="task-chat-queued-interrupt-comment-1"]');
+    expect(send?.textContent).toBe("Send");
+    expect(send?.disabled).toBe(false);
+    await act(async () => { send!.click(); });
+    expect(onInterrupt).toHaveBeenCalledOnce();
     expect(container.querySelector('[data-testid="task-chat-queued-steer-comment-1"]')).toBeNull();
   });
 
