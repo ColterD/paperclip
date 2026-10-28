@@ -1374,3 +1374,18 @@ targeted health/producer/consumer cases and server typecheck/build pass. Publish
 the repair to #17554, propagate through company-deletion #17561 into Discord
 #17557, and require fresh remote gates. No PR in this stack is merged. The next
 new owner remains chat runtime discovery; the full remaining ledger is unchanged.
+
+## Acceptance follow-up after the plugin parent merged (October 27)
+
+Eighteen preceding sleep PRs are merged through plugin scheduling #17518 at
+`96727b3cfefb61f85ffe1fbc29a9b6dd6837efe8`. Health #17554 now includes that
+actual master. It remains the next unmerged dependency, followed by company
+chat deletion #17561 and Discord registration #17557. Later children cannot be
+merged into their feature parents to bypass this order.
+
+See [health acceptance](../idle-tool-connection-health.md#acceptance-follow-up-after-the-plugin-parent-merged-october-27)
+for the remaining installer amplification and independent retry repairs, failing
+baselines, real concurrency proof, and fresh-database verification. Older stack
+status and test counts above are historical. The original remaining inventory
+is still in scope beyond the 65 published numbered slices; native backups and
+the remaining aggregate duties have not been migrated by this follow-up.

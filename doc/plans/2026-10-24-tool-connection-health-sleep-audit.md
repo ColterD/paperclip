@@ -179,3 +179,18 @@ and provider policy; the shared notification/coordinator layers remain generic.
 See `doc/idle-tool-connection-health.md` for the failing amplification baseline,
 changed contract, scope-cancellation tests, and verification results. The older
 company-hint observations in this audit describe the superseded implementation.
+
+## Acceptance follow-up after the plugin parent merged (October 27)
+
+The actual merged parent is master `96727b3cfefb61f85ffe1fbc29a9b6dd6837efe8`.
+All 18 preceding sleep PRs are merged. Historical unmerged-state statements
+above describe earlier revisions.
+
+The final producer and retry follow-up is recorded in
+[the health lifecycle document](../idle-tool-connection-health.md#acceptance-follow-up-after-the-plugin-parent-merged-october-27).
+It preserves the two real installer amplification failures, type-change lock-wait
+mutation proof, independent failed-inventory retry regression, fresh database
+fixture setup, and verification scope. Metadata-only installer writes do not
+invalidate an entire application; actual eligibility changes still do. Inventory
+failures do not inherit another company's one-second backlog continuation.
+Current-head reviews and CI remain required; these are worker-level guarantees.

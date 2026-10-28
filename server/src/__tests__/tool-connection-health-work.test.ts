@@ -355,6 +355,41 @@ const support = external ? { supported: true } : await getEmbeddedPostgresTestSu
       await checked(); expect(probe.mock.calls[0][0]).toBe(other.id);
     } finally { service.load = load; await db.delete(companies).where(eq(companies.id, otherId)); errors.length = 0; }
   });
+  it("does not accelerate failed inventory reads while another company drains multiple pages", async () => {
+    const service = connectionHealthSchedule(db, probe), load = service.load;
+    await start(service); await quiet();
+    const failedAt: number[] = [];
+    service.load = async (...args) => {
+      if (args[0] === companyId) { failedAt.push(Date.now()); throw new Error("scope unavailable"); }
+      return load(...args);
+    };
+    const otherId = randomUUID();
+    await db.insert(companies).values({ id: otherId, name: "Backlog", issuePrefix: `B${otherId.slice(0, 6)}` });
+    const [app] = await db.insert(toolApplications).values({ companyId: otherId, name: "Backlog", type: "mcp_http" }).returning();
+    try {
+      draining = true;
+      await connection();
+      await writeToolConnectionHealthChange(db, otherId, tx => tx.insert(toolConnections).values(
+        Array.from({ length: 60 }, () => ({ companyId: otherId, applicationId: app.id, name: "Due", uid: randomUUID(),
+          transport: "mcp_remote" as const, status: "active" as const, enabled: true })),
+      ));
+      draining = false;
+      await checked(60);
+      expect(failedAt).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.waitFor(() => expect(failedAt.length).toBeGreaterThan(1));
+      expect(failedAt.every((at, index) => index === 0 || at - failedAt[index - 1] >= 30_000)).toBe(true);
+      service.load = load;
+      await vi.advanceTimersByTimeAsync(30_000); await checked(61);
+      await vi.advanceTimersByTimeAsync(31_000);
+      const reads = vi.spyOn(db, "select");
+      await vi.advanceTimersByTimeAsync(180_000);
+      expect(reads).not.toHaveBeenCalled(); reads.mockRestore();
+    } finally {
+      draining = false; service.load = load; await coordinator?.stop(); coordinator = undefined;
+      await db.delete(companies).where(eq(companies.id, otherId)); errors.length = 0;
+    }
+  });
   it("cancels and restores experimental connector checks through the settings producer", async () => {
     const settings = instanceSettingsService(db);
     const original = (await settings.getExperimental()).enablePaperclipNotebook;
