@@ -2,16 +2,18 @@ import { logger } from "../middleware/logger.js";
 import { instanceSettingsService } from "../services/instance-settings.js";
 import { deleteCompany } from "../services/company-deletion.js";
 import { notifyChatConnectionHealth } from "../services/chat-channels/connection-health-notifications.js";
+import { smokeLabService } from "../services/smoke-lab.js";
 import { toolAccessService } from "../services/tool-access.js";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { eq, sql } from "drizzle-orm";
-import { companies, createDb, toolApplications, toolConnections } from "@paperclipai/db";
+import { and, eq, ne, sql } from "drizzle-orm";
+import { applyPendingMigrations, companies, createDb, subscribeDatabaseWork, toolApplications, toolConnections } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { resolveExternalTestDatabaseUrl } from "./helpers/external-test-database.js";
 import { connectionHealthSchedule } from "../services/tool-access/catalog/health-schedule.js";
 import { registerToolConnectionHealthWork } from "../services/tool-connection-health-work.js";
 import { writeToolConnectionHealthChange } from "../services/tool-connection-health-notifications.js";
+import { DELIVERY_QUEUES } from "../services/delivery-work-notifications.js";
 import { createDeliveryWorkCoordinator } from "../services/delivery-work-coordinator.js";
 import { idleWorkSnapshot } from "../services/task-admission.js";
 
@@ -26,6 +28,7 @@ const support = external ? { supported: true } : await getEmbeddedPostgresTestSu
   const probe = vi.fn();
   beforeAll(async () => {
     if (!external) temporary = await startEmbeddedPostgresTestDatabase("tool-health-");
+    if (external) await applyPendingMigrations(external);
     db = createDb(external ?? temporary!.connectionString, { maxConnections: 6, idleTimeoutSeconds: 0, maxLifetimeSeconds: 0 });
   }, 30_000);
   beforeEach(async () => {
@@ -109,6 +112,88 @@ const support = external ? { supported: true } : await getEmbeddedPostgresTestSu
     expect(returnedRows).toBe(5);
     expect(probe).not.toHaveBeenCalled();
   });
+  it.each(["example", "smoke"] as const)("does not reload unrelated connections when reinstalling %s metadata", async kind => {
+    const settings = instanceSettingsService(db);
+    const enabled = (await settings.getExperimental()).enableSmokeLab;
+    const tools = toolAccessService(db);
+    const smoke = smokeLabService(db, { deploymentMode: "local_trusted", deploymentExposure: "private" });
+    const install = () => kind === "example" ? tools.installExample(companyId, "safe-read-only-todo-kv")
+      : smoke.installFixtures(companyId);
+    try {
+      if (kind === "smoke") await settings.updateExperimental({ enableSmokeLab: true });
+      await install();
+      const fixtureConnections = await db.select().from(toolConnections).where(eq(toolConnections.companyId, companyId));
+      const [application] = await db.select().from(toolApplications).where(and(
+        eq(toolApplications.companyId, companyId), ne(toolApplications.id, applicationId),
+      ));
+      const checkedAt = new Date();
+      const unrelated = await db.insert(toolConnections).values(Array.from({ length: 205 }, (_, index) => ({
+        companyId, applicationId: application.id, name: `Other ${index}`, uid: randomUUID(),
+        transport: "mcp_remote" as const, enabled: true, status: "active" as const,
+        healthCheckedAt: checkedAt, config: { url: "https://health.example.test/mcp" },
+      }))).returning({ id: toolConnections.id });
+      await db.update(toolConnections).set({ healthCheckedAt: checkedAt }).where(eq(toolConnections.companyId, companyId));
+      const service = connectionHealthSchedule(db, probe), load = service.load;
+      let returnedRows = 0, excludedApplicationLoaded = false;
+      const loadedIds = new Set<string>();
+      service.load = async (...args) => {
+        const rows = await load(...args); returnedRows += rows.length;
+        for (const row of rows) loadedIds.add(row.id);
+        if (args[2] === application.id && rows.length === 0) excludedApplicationLoaded = true;
+        return rows;
+      };
+      await start(service); await idleAt(checkedAt.getTime() + 900_000); returnedRows = 0;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await install(); await idleAt(checkedAt.getTime() + 900_000);
+      }
+      expect(returnedRows).toBeLessThanOrEqual(10 * fixtureConnections.length);
+      await writeToolConnectionHealthChange(db, { companyId, applicationId: application.id }, async tx => {
+        await tx.update(toolApplications).set({ type: "paperclip_plugin" }).where(eq(toolApplications.id, application.id));
+      });
+      await vi.advanceTimersByTimeAsync(31_000);
+      await vi.waitFor(() => expect(excludedApplicationLoaded).toBe(true));
+      loadedIds.clear();
+      await install();
+      await vi.advanceTimersByTimeAsync(31_000);
+      await vi.waitFor(() => expect(unrelated.every(row => loadedIds.has(row.id))).toBe(true));
+    } finally {
+      await coordinator?.stop(); coordinator = undefined;
+      if (kind === "smoke") await settings.updateExperimental({ enableSmokeLab: enabled });
+    }
+  });
+
+  it("notifies restored application eligibility after waiting for a concurrent type change", async () => {
+    const tools = toolAccessService(db);
+    const installed = await tools.installExample(companyId, "safe-read-only-todo-kv");
+    const hints = new Set<string>();
+    const unsubscribe = subscribeDatabaseWork(db, DELIVERY_QUEUES.toolConnectionHealth, (event, changed) => {
+      if (event === "settled") for (const hint of changed ?? []) hints.add(hint);
+    });
+    let unlock!: () => void, acquired!: () => void;
+    const gate = new Promise<void>(resolve => { unlock = resolve; });
+    const admitted = new Promise<void>(resolve => { acquired = resolve; });
+    const holder = db.transaction(async tx => {
+      await tx.update(toolApplications).set({ type: "paperclip_plugin" }).where(eq(toolApplications.id, installed.application.id));
+      acquired(); await gate;
+    });
+    await admitted;
+    let installing: ReturnType<typeof tools.installExample> | undefined;
+    try {
+      installing = tools.installExample(companyId, "safe-read-only-todo-kv");
+      void installing.catch(() => undefined);
+      await vi.waitFor(async () => {
+        const waits = await db.execute(sql`select 1 from pg_stat_activity where datname = current_database()
+          and pid <> pg_backend_pid() and wait_event_type = 'Lock' and query like '%tool_applications%'`);
+        expect(waits.length).toBe(1);
+      });
+      unlock(); await holder; await installing;
+      expect(hints.has(`${companyId}:application:${installed.application.id}`)).toBe(true);
+      expect((await db.select().from(toolApplications).where(eq(toolApplications.id, installed.application.id)))[0].type).toBe("mcp_stdio");
+    } finally {
+      unlock(); await Promise.allSettled([holder, installing]); unsubscribe();
+    }
+  });
+
   it("pages startup inventory while retaining every eligible deadline", async () => {
     const checkedAt = new Date();
     await db.insert(toolConnections).values(Array.from({ length: 205 }, (_, index) => ({
