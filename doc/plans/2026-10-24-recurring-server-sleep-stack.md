@@ -17,12 +17,8 @@ Do not mark an item done from a timer removal or a green check alone.
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
 | 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Approval retention [#17497](https://github.com/paperclipai/paperclip/pull/17497) and archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged; other source retention pending |
 | 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479) merged; effects [#17482](https://github.com/paperclipai/paperclip/pull/17482) merged; targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) merged |
-
-
-
 | 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | Pending |
 | 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Slices 02–07 merged: [secret proposals](https://github.com/paperclipai/paperclip/pull/17446), [credentials](https://github.com/paperclipai/paperclip/pull/17450), [review expiry](https://github.com/paperclipai/paperclip/pull/17453), [approved recovery](https://github.com/paperclipai/paperclip/pull/17454), [interrupted claims](https://github.com/paperclipai/paperclip/pull/17458), [projection](https://github.com/paperclipai/paperclip/pull/17468) |
-
 | 08 | GitHub connection events and continuity | Event discovery/replay and credential continuity separately | Pending |
 | 09 | Merged-PR confirmations | Candidate writes, webhook activation where supported, outstanding-candidate fallback | Pending |
 | 10 | External-object refresh | Configuration changes, refresh deadlines, source events | Pending |
@@ -41,7 +37,8 @@ The first PR targets master. Each following PR targets its predecessor branch so
 its diff shows only its own reason. Parent changes must be propagated before
 final verification. Record the exact checked head and base for every PR. All PRs
 must finish with passing checks, fresh 5/5 Greptile review, and no unresolved
-findings. This request does not authorize merging the stack.
+findings. The later user authorization permits merges after current-head Greptile
+5/5, a passing Ponytail review when present, and passing CI, in dependency order.
 
 Reuse the delivery coordinator, transaction notifications, and shared scheduler.
 Existing durable rows own work; no table per loop. Keep domain/provider behavior
@@ -1121,3 +1118,17 @@ All six isolated database fixtures pass actual migration apply/replay. Index 039
 is generated after 391 unchanged parent entries; five snapshots remain. Parent
 `0b0e844b77` adds only four Runner E2E accounting files and ledger changes; runtime
 and acceptance sources are unchanged. Fresh publication checks/reviews required.
+
+
+Slice 15 final master integration: #17505 merged as `d23dd19750` after both
+final-head 5/5 reviews and all 58 accepted checks. Join retention now targets
+master and integrates that landed parent without changing the tested source tree.
+The shared retention scan saves a finite upper tuple so continuing arrivals cannot
+starve failed rows; both real arrival regressions failed then passed. All 55 worker
+cases pass. Eight consumer suites passed 311 cases; the ninth attention suite had
+a cleanup-hook timeout and then passed all 31 after disposable-fixture vacuuming.
+The unchanged expiry suite passes twenty local cases after a separate CI deadline
+assertion failure; neither passing rerun is presented as a proven root cause.
+Server types/build pass. See the join-retention document for the full audit.
+Fresh exact-head reviews and CI remain required. All original duties remain open
+until their own accepted merge, including native-harness backup expiration.
