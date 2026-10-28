@@ -193,3 +193,11 @@ approval-seeding and scoped-deadline suites pass at `56ce7c1d2a`, plus server
 typecheck/build. The original seventeen-file plugin boundary and exact parent
 migration metadata are preserved. Publication waits for the parent to land so
 final master reconciliation and remote checks can run together.
+
+
+Approval seeding #17510 merged as `4e27a82a42`, with both final-head 5/5 reviews
+and all 58 accepted checks. Plugin scheduling now integrates that actual master
+parent. The complete integrated tree is byte-identical to `df78ca3b5e`, so the
+247-case and final 63-case verification above retain their exact source scope.
+No local checks were repeated on unchanged code. Only final publication docs
+change afterwards; fresh exact-head CI and reviews remain required against master.

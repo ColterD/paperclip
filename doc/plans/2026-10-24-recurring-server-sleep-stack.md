@@ -1283,3 +1283,11 @@ is unchanged from the 247-case proof. All 63 cases across complete plugin,
 seeding and scoped-deadline suites now pass at `56ce7c1d2a`, plus server
 types/build. Hold its final publication for the parent's accepted merge, then
 reconcile the landed master parent and require fresh exact-head review/CI.
+
+
+Approval queue seeding #17510 merged as `4e27a82a42` after final-head 5/5
+Greptile/Ponytail and all 58 accepted checks. Plugin scheduling now targets master
+and integrates that accepted parent. Normal ancestry reconciliation preserves
+its entire verified tree (`df78ca3b5e`) byte for byte; only publication docs change
+subsequently. All original remaining duties remain in scope, beyond the 65
+published numbered slices, including native backups and remaining aggregate owners.
