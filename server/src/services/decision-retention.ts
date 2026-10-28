@@ -15,6 +15,7 @@ import {
   issueRecoveryActions,
   issueThreadInteractions,
   issues,
+  joinRequests,
 } from "@paperclipai/db";
 import type {
   AttentionArchiveManifestEntry,
@@ -183,13 +184,14 @@ export function decisionRetentionService(
     )).then((rows) => rows[0] ?? null);
   }
 
-  async function materializeApprovalState(database: Db, input: { companyId: string; sourceKind: AttentionSourceKind; sourceId: string }) {
-    if (input.sourceKind !== "approval") return;
-    const [source] = await database.select({ updatedAt: approvals.updatedAt }).from(approvals)
-      .where(and(eq(approvals.companyId, input.companyId), eq(approvals.id, input.sourceId))).for("update");
+  async function materializeSourceState(database: Db, input: { companyId: string; sourceKind: AttentionSourceKind; sourceId: string }) {
+    const table = input.sourceKind === "approval" ? approvals : input.sourceKind === "join_request" ? joinRequests : null;
+    if (!table) return;
+    const [source] = await database.select({ updatedAt: table.updatedAt }).from(table)
+      .where(and(eq(table.companyId, input.companyId), eq(table.id, input.sourceId))).for("update");
     if (!source) throw notFound("Attention source not found");
     await decisionRetentionService(database).syncItems(input.companyId, [{
-      sourceKind: "approval", subject: { id: input.sourceId }, activityAt: source.updatedAt.toISOString(),
+      sourceKind: input.sourceKind, subject: { id: input.sourceId }, activityAt: source.updatedAt.toISOString(),
     }]);
   }
 
@@ -205,7 +207,7 @@ export function decisionRetentionService(
       throw notFound("Attention source not found");
     }
     const updated = await writeRetention(input.sourceKind, async tx => {
-      await materializeApprovalState(tx, input);
+      await materializeSourceState(tx, input);
       return tx.update(decisionRetention).set({
         keep: input.keep,
         version: sql`${decisionRetention.version} + 1`,
@@ -246,7 +248,7 @@ export function decisionRetentionService(
     }
     const now = new Date();
     const updated = await writeRetention(input.sourceKind, async tx => {
-      await materializeApprovalState(tx, input);
+      await materializeSourceState(tx, input);
       return tx.update(decisionRetention).set(input.archived ? {
         archivedAt: now,
         archivedReason: "manual",

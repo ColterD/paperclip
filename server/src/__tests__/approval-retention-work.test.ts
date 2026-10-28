@@ -145,6 +145,17 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
     expect((await db.select().from(approvals).where(eq(approvals.id, other.id)))[0].status).toBe("pending");
   });
 
+  it("rounds a submillisecond approval deadline up to the next scheduler millisecond", async () => {
+    const row = await create(), floor = Date.now() + 120_000;
+    const activity = new Date(floor - delay).toISOString();
+    await db.execute(sql`update approvals set updated_at = ${activity}::timestamptz + interval '456 microseconds' where id = ${row.id}`);
+    const service = approvalRetentionService(db);
+    expect(await service.next()).toBe(floor + 1);
+    expect(await service.sweep(new Date(floor))).toEqual({ archived: 0 });
+    expect(await state(row.id)).toBeNull();
+    expect(await service.sweep(new Date(floor + 1))).toEqual({ archived: 1 });
+  });
+
   it("recovers old unseen approvals on startup and leaves completed history quiet", async () => {
     const due = await create(old()), completed = await create(old());
     await approvalRecords(db).resolveApproval(completed.id, "approved", "board-user", null);

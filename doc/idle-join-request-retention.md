@@ -22,9 +22,14 @@ Errors keep the shared 30-second retry; successful full pages continue until
 work is exhausted. No eligible rows means no scheduled SQL or network scan.
 
 Each candidate is re-read under its request row lock before retention changes.
-This preserves a concurrent request update or status transition. The shared
-retention owner still controls keep, archive/revive, version checks, activity
-logging, and notification creation. Archiving does not approve or reject a join.
+A writer that wins that lock first is rechecked before archival. If archival
+commits first, a later activity write leaves the item archived until explicit
+revival; updating activity does not clear existing retention choices. The tests
+cover the writer-first race and the archive-first committed outcome. Supported
+invite replay expires before the 90-day cutoff and Slack access replay deduplicates;
+a future producer that needs to reappear after archival must request revival.
+The shared retention owner still controls keep, archive/revive, version checks,
+activity logging, and notification creation. Archiving does not approve or reject a join.
 Join requests have no origin agent, so their archival creates no agent delivery.
 Company and invite joins preserve existing visibility policy; this does not add
 cross-table serializability beyond the existing retention contract.
