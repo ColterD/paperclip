@@ -3312,8 +3312,9 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
           }
 
           let continuationWait = { reason: "execution_recovery", message: "Waiting for execution recovery. Your message is saved." };
+          let continuationBlocked = false;
           const deferBlockedExecution = async (
-            executionBlocker: NonNullable<Awaited<ReturnType<typeof getExecutionBlocker>>>,
+            executionBlocker: Pick<NonNullable<Awaited<ReturnType<typeof getExecutionBlocker>>>, "recoveryActionId" | "cause" | "nextAction">,
           ) => {
             if (caseRequest) waitForCaseAdmission("execution_reconciliation_required", executionBlocker.nextAction);
             opts.issueStateGuard?.onExecutionDeferred?.(executionBlocker.cause);
@@ -3374,7 +3375,10 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
           // failed-run retry actions on their separate exact-request path.
           const ownsReconstructionContinuation = reconciledSourceRunId && executionBlocker?.runId === reconciledSourceRunId
             && executionBlocker.recoveryActionId === enrichedContextSnapshot.recoveryActionId;
-          if (executionBlocker && !ownsReconstructionContinuation && !(await admitExplicitNativeContinuation({
+          const continuationHold = () => executionBlocker ?? {
+            recoveryActionId: null, cause: "native_continuation_requires_reconciliation" as const, nextAction: continuationWait.message,
+          };
+          if ((executionBlocker || opts.queuedCommentInterruptId) && !ownsReconstructionContinuation && !(await admitExplicitNativeContinuation({
             db: tx as unknown as Db, companyId: issue.companyId, issueId: issue.id,
             agentId, actorType: taskRetryActorId ? "user" : opts.requestedByActorType, actorId: taskRetryActorId ?? opts.requestedByActorId,
             reason: taskRetryActorId ? "task_retry" : durableRequest && !failedChatRetry ? "issue_commented" : reason,
@@ -3384,8 +3388,8 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
             taskRetryRequestId: opts.taskRetryRequestId,
             ...(durableRequest?.resumeDeferred && !failedChatRetry ? { durableChatRequest: durableRequest } : {}),
             dryRun: true,
-            onBlocked: (reason, message) => { continuationWait = { reason, message }; },
-          }))) return deferBlockedExecution(executionBlocker);
+            onBlocked: (reason, message) => { continuationBlocked = true; continuationWait = { reason, message }; },
+          })) && (executionBlocker || continuationBlocked)) return deferBlockedExecution(continuationHold());
 
 
           if (
@@ -4184,8 +4188,10 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
             queuedCommentRequestId: opts.queuedCommentRequestId,
             taskRetryRequestId: opts.taskRetryRequestId,
             ...(durableRequest?.resumeDeferred && !failedChatRetry ? { durableChatRequest: durableRequest } : {}),
+            onBlocked: (reason, message) => { continuationBlocked = true; continuationWait = { reason, message }; },
           });
-          if (!explicitContinuation && executionBlocker && !ownsReconstructionContinuation) return deferBlockedExecution(executionBlocker);
+          if (!explicitContinuation && (executionBlocker || continuationBlocked) && !ownsReconstructionContinuation)
+            return deferBlockedExecution(continuationHold());
           if (explicitContinuation) {
             enrichedContextSnapshot.forceFreshSession = true;
             enrichedContextSnapshot.previousRunId = explicitContinuation.previousRunId;

@@ -394,6 +394,15 @@ describe("TaskChatQueuedMessages", () => {
       ),
     ).toBeNull();
   });
+  it("keeps deferred sends visible and explains their current wait", async () => {
+    const saved = { ...queue, targetRunId: null, executionWait: { reason: "decision_pending", message: "Resolve the pending approval before sending." } };
+    const onInterrupt = vi.fn().mockResolvedValue(saved);
+    render({ queue: saved, onInterrupt });
+    await act(async () => { container.querySelector<HTMLButtonElement>('[data-testid="task-chat-queued-interrupt-comment-1"]')!.click(); });
+    expect(container.textContent).toContain("First queued message");
+    expect(container.textContent).toContain(saved.executionWait.message);
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="task-chat-queued-interrupt-comment-1"]')?.disabled).toBe(false);
+  });
   it.each(["legacy", "paperclip_runner_v1"] as const)("sends a saved %s queue explicitly after Stop", async (protocol) => {
     const onInterrupt = vi.fn().mockResolvedValue(undefined);
     render({ queue: { ...queue, targetRunId: null, protocol, steeringDisposition: "temporarily_unavailable" }, onInterrupt });

@@ -71,7 +71,7 @@ export interface TaskChatQueuedMessagesProps {
   onEdit: (commentId: string) => void;
   onReorder: (orderedCommentIds: string[], revision: string) => Promise<void>;
   onSteer: (commentId: string, revision: string) => Promise<void>;
-  onInterrupt?: () => Promise<void>;
+  onInterrupt?: () => Promise<IssueQueuedCommentQueue | void>;
   onDiscard: (commentId: string, revision: string) => Promise<void>;
 }
 
@@ -337,7 +337,16 @@ export function TaskChatQueuedMessages({
     );
     try {
       if (action === "steer") await onSteer(commentId, queue.revision);
-      else if (action === "interrupt") await onInterrupt?.();
+      else if (action === "interrupt") {
+        const updatedQueue = await onInterrupt?.();
+        if (updatedQueue?.state === "deferred") {
+          for (const entry of updatedQueue.entries) optimisticDeliveryIds.current.delete(entry.comment.id);
+          setEntries(updatedQueue.entries.filter(entry => !optimisticDeliveryIds.current.has(entry.comment.id)));
+          setVisibleError(updatedQueue.executionWait?.message ?? "Messages are still queued. They will send when the task is ready.");
+          setAnnouncement("Messages are still queued.");
+          return;
+        }
+      }
       else await onDiscard(commentId, queue.revision);
       if (action === "discard") {
         setEntries((current) =>

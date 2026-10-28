@@ -16534,8 +16534,6 @@ export function issueRoutes(
         });
         assertQueueMutationTarget({ queue: locked.queue, queueId: req.body.queueId, revision: req.body.revision });
         const freshResponse = locked.queue.entries.some(entry => entry.source?.requiresFreshSession);
-        // Native same-turn steering needs a live turn. A stopped queue instead
-        // needs a fresh, explicit Send click; it must never interrupt a native turn.
         const stoppedNativeQueue = locked.queue.protocol === "paperclip_runner_v1" &&
           (!locked.activeRun || ["succeeded", "failed", "timed_out", "interrupted", "cancelled"].includes(locked.activeRun.status));
         if ((locked.queue.protocol !== "legacy" && !freshResponse && !stoppedNativeQueue) || locked.state !== "deferred" ||

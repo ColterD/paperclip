@@ -3281,7 +3281,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
                           onInterrupt={
                             onInterruptQueued && queuedMessageQueue?.queueId
                               ? async () => {
-                                  await onInterruptQueued(
+                                  return onInterruptQueued(
                                     queuedMessageQueue.targetRunId,
                                   );
                                 }

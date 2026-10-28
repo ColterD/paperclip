@@ -2140,13 +2140,19 @@ message posted after the run finished can authorize a fresh turn through the
 same continuation checks as a new message. A message from before the Stop cannot
 authorize that continuation by itself. Previously delivered messages stay excluded.
 
+The Send click also covers saved question answers and confirmation responses.
+Admission checks the last native Stop's process, workspace and cleanup receipts
+even when no recovery action exists. Its continuation authority is recorded on
+the exact queue receipt and verified again at dispatch. A deferred response keeps
+its messages and controls visible and explains the current wait.
+
 The active session advertises steering only when its driver supports it. A
 transport method that rejects steering does not grant that capability. The
 queued-message controller remains mounted across an empty queue, preserving
 pending delivery and inline errors. Steer immediately moves the selected message
 into the conversation; Interrupt immediately moves all submitted queued messages.
 Stale queue polls do not restore those rows while delivery is pending or accepted.
-Rejected delivery restores the latest queue and shows an inline error without a
+Rejected or still-deferred delivery restores the latest queue and shows an inline error without a
 toast. The provider acknowledgement remains the authoritative delivery receipt;
 optimistic display never grants permission or records successful delivery. A preparing
 Paperclip Runner retains the Steer label while steering is unavailable; the
