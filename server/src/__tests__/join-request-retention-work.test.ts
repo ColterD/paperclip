@@ -277,7 +277,14 @@ const delay = DEFAULT_DECISION_ARCHIVE_DAYS * 86_400_000;
       await writeJoinRequestChange(tx as unknown as Db, owner => owner.update(joinRequests).set({ updatedAt: new Date() }).where(eq(joinRequests.id, row.id)));
     });
     await admitted; const sweep = joinRequestRetentionService(db).sweep();
-    await vi.advanceTimersByTimeAsync(100); release(); await write; await sweep;
+    try {
+      await vi.waitFor(async () => {
+        const [row] = await db.execute(sql`select count(*)::int as waiting from pg_stat_activity
+          where datname = current_database() and pid <> pg_backend_pid() and wait_event_type = 'Lock'
+            and query like 'select%' and query like '%from "join_requests"%'`);
+        expect(row.waiting).toBe(1);
+      });
+    } finally { release(); await write; await sweep; }
     expect(await state(row.id)).toBeNull();
   });
 
