@@ -3389,7 +3389,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
             ...(durableRequest?.resumeDeferred && !failedChatRetry ? { durableChatRequest: durableRequest } : {}),
             dryRun: true,
             onBlocked: (reason, message) => { continuationBlocked = true; continuationWait = { reason, message }; },
-          })) && (executionBlocker || continuationBlocked)) return deferBlockedExecution(continuationHold());
+          })) && (executionBlocker || (opts.queuedCommentInterruptId && continuationBlocked))) return deferBlockedExecution(continuationHold());
 
 
           if (
@@ -4190,7 +4190,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
             ...(durableRequest?.resumeDeferred && !failedChatRetry ? { durableChatRequest: durableRequest } : {}),
             onBlocked: (reason, message) => { continuationBlocked = true; continuationWait = { reason, message }; },
           });
-          if (!explicitContinuation && (executionBlocker || continuationBlocked) && !ownsReconstructionContinuation)
+          if (!explicitContinuation && (executionBlocker || (opts.queuedCommentInterruptId && continuationBlocked)) && !ownsReconstructionContinuation)
             return deferBlockedExecution(continuationHold());
           if (explicitContinuation) {
             enrichedContextSnapshot.forceFreshSession = true;

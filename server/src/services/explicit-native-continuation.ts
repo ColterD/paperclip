@@ -262,8 +262,6 @@ export async function admitExplicitNativeContinuation(input: {
     if (!run || run.agentId !== agentId || !terminal.includes(run.status) ||
         (run.nativeIssueId ?? run.issueId ?? run.contextSnapshot?.issueId) !== issueId ||
         !run.finishedAt) return blocked("source_unavailable", "The previous execution has not finished or its owner changed. Your message is saved.");
-    if (nativeQueuedSend && authorizedAt <= run.finishedAt)
-      return blocked("send_predates_stop", "Send the saved message again now that the previous run has stopped.");
     if (!queuedInterrupt && !queuedRequest && authorizedAt <= run.finishedAt) return blocked("message_predates_stop", "This message arrived before the previous run stopped. Send a new message to continue.");
     if (adapterExecutionControls.has(run.id)) return blocked("execution_settling", "Waiting for the previous run to stop. Your message will start automatically.");
     const unusedAdmission = run.status === "cancelled" && !run.startedAt &&
@@ -310,6 +308,13 @@ export async function admitExplicitNativeContinuation(input: {
     if (!lockedRun || lockedRun.status !== run.status || lockedRun.agentId !== run.agentId ||
         lockedRun.finishedAt?.getTime() !== run.finishedAt.getTime()) return null;
     run = lockedRun;
+    const interruptedByThisClick = response?.source.requiresFreshSession === true &&
+      interruptIntent?.targetRunId === run.id && run.resultJson?.operatorInterrupted === true &&
+      run.resultJson?.interruptionSource === "issue_comment_interrupt" && run.resultJson?.interruptedIssueId === issueId &&
+      run.resultJson?.interruptedByActorType === "user" && run.resultJson?.interruptedByActorId === actorId &&
+      run.resultJson?.queuedCommentInterruptQueueId === input.queuedCommentInterruptId;
+    if (nativeQueuedSend && authorizedAt <= run.finishedAt! && !interruptedByThisClick)
+      return blocked("send_predates_stop", "Send the saved message again now that the previous run has stopped.");
     if (coordinator && coordinator.phase !== "committed" && coordinator.resultId &&
         readSystemRecovery(action.evidence)) {
       const [completedResult] = await db.select({ id: nativeRunResults.id }).from(nativeRunResults).where(and(

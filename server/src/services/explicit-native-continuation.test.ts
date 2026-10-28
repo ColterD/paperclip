@@ -524,6 +524,55 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
     expect((await db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.id, interaction.id)))[0])
       .toMatchObject({ result: interaction.result, resolvedByUserId: "board" });
   });
+  it.each(["matching", "wrong_queue", "wrong_actor", "wrong_target", "missing_receipt", "ordinary_response"])("accepts only the exact live native plan Interrupt receipt: %s", async kind => {
+    const f = await seed(), queueId = randomUUID();
+    const [interaction] = await db.insert(issueThreadInteractions).values({ companyId: f.companyId, issueId: f.issueId,
+      sourceRunId: f.sourceRunId, createdByAgentId: f.agentId, kind: "request_confirmation", status: "accepted",
+      resolvedByUserId: "board", resolvedAt: new Date("2026-09-11T09:00:00Z"),
+      payload: { version: 1, prompt: "Approve this plan?" }, result: { version: 1, outcome: "accepted" },
+    }).returning();
+    await db.update(heartbeatRuns).set({ status: "cancelled", resultJson: kind === "missing_receipt" ? null : {
+      operatorInterrupted: true, interruptionSource: "issue_comment_interrupt", interruptedIssueId: f.issueId,
+      interruptedByActorType: "user", interruptedByActorId: kind === "wrong_actor" ? "someone-else" : "board",
+      queuedCommentInterruptQueueId: kind === "wrong_queue" ? randomUUID() : queueId,
+    } }).where(eq(heartbeatRuns.id, f.sourceRunId));
+    await db.insert(agentWakeupRequests).values({ id: queueId, companyId: f.companyId, agentId: f.agentId,
+      source: "on_demand", reason: "issue_commented", status: "deferred_issue_execution",
+      payload: { issueId: f.issueId, mutation: "interaction", interactionId: interaction.id, interactionStatus: "accepted",
+        _paperclipWakeContext: { forceFreshSession: kind !== "ordinary_response" },
+        queuedCommentInterrupt: { actorId: "board", requestedAt: "2026-09-11T09:30:00Z",
+          targetRunId: kind === "wrong_target" ? randomUUID() : f.sourceRunId },
+      },
+    });
+    const result = await db.transaction(tx => admitExplicitNativeContinuation({ ...f, db: tx as unknown as typeof db,
+      commentId: null, queuedCommentInterruptId: queueId, dryRun: true }));
+    if (kind === "matching") expect(result).toMatchObject({ previousRunId: f.sourceRunId });
+    else expect(result).toBeNull();
+  });
+
+  it.each([false, true])("admits a chat context reset without borrowing stop proof but keeps workspace holds: %s", async workspaceHold => {
+    const f = await seed(), settings = instanceSettingsService(db), previous = await settings.getExperimental();
+    await settings.updateExperimental({ enableAgentChat: true });
+    try {
+      await db.update(issues).set({ conversationAgentId: f.agentId, conversationUserId: "board", conversationState: "active", status: "in_progress" }).where(eq(issues.id, f.issueId));
+      await db.update(issueComments).set({ body: "/new" }).where(eq(issueComments.id, f.commentId));
+      await db.update(heartbeatRuns).set({ processPid: null }).where(eq(heartbeatRuns.id, f.sourceRunId));
+      await db.insert(heartbeatRuns).values({ companyId: f.companyId, agentId: f.agentId, status: "running" });
+      if (workspaceHold) await db.update(issueRecoveryActions).set({
+        evidence: { runId: f.sourceRunId, workspaceRestoreFailure: "restore_unsafe_archive", automaticRecovery: { replay: "blocked" } },
+      }).where(eq(issueRecoveryActions.sourceIssueId, f.issueId));
+      const blocker = await getExecutionBlocker(db, f.companyId, f.issueId, { conversationResetCommentId: f.commentId });
+      if (workspaceHold) expect(blocker).not.toBeNull(); else expect(blocker).toBeNull();
+      const wake = await heartbeatService(db).wakeup(f.agentId, { source: "on_demand", triggerDetail: "manual", reason: "issue_commented",
+        requestedByActorType: "user", requestedByActorId: "board", payload: { issueId: f.issueId, commentId: f.commentId },
+        contextSnapshot: { source: "issue.comment", issueId: f.issueId, wakeCommentId: f.commentId },
+      });
+      if (workspaceHold) expect(wake).toBeNull(); else expect(wake).not.toBeNull();
+      expect((await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, f.issueId)))[0].evidence)
+        .not.toHaveProperty("explicitUserContinuation");
+    } finally { await settings.updateExperimental(previous); }
+  });
+
   it("a durable queue interrupt authorizes older legacy messages but still requires the provider to stop", async () => {
     const f = await seed();
     await db.update(agents).set({ adapterType: "claude_local" }).where(eq(agents.id, f.agentId));

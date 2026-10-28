@@ -16553,6 +16553,8 @@ export function issueRoutes(
         await tx.update(agentWakeupRequests).set({
           payload: { ...readObject(locked.wake.payload), queuedCommentInterrupt: {
             actorId: actor.actorId, requestedAt: new Date().toISOString(),
+            ...(freshResponse && locked.queue.protocol === "paperclip_runner_v1" && locked.activeRun?.status === "running"
+              ? { targetRunId: locked.activeRun.id } : {}),
           } },
           updatedAt: new Date(),
         }).where(eq(agentWakeupRequests.id, locked.wake.id));

@@ -2146,6 +2146,13 @@ even when no recovery action exists. Its continuation authority is recorded on
 the exact queue receipt and verified again at dispatch. A deferred response keeps
 its messages and controls visible and explains the current wait.
 
+A live plan Interrupt binds the click to its target run and the exact operator
+cancellation receipt. Its click may precede that run's stop time, but cannot
+bypass process or workspace cleanup. Other Send clicks must follow the Stop.
+A fresh Agent Chat `/new` reset retains its existing conversation-reset exception;
+the queue-specific continuation check does not impose an old execution hold on
+that reset. Workspace recovery holds still block it.
+
 The active session advertises steering only when its driver supports it. A
 transport method that rejects steering does not grant that capability. The
 queued-message controller remains mounted across an empty queue, preserving
