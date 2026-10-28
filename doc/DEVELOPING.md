@@ -1804,6 +1804,13 @@ overrides, scoped credentials, managed AI identity, and runtime skill delivery.
 The executor receives credential ownership and failure-redaction updates as soon
 as they are available, so later setup failures still clean up acquired resources.
 Busy-account deferral returns explicitly before session/workspace preparation.
+
+On Cloud-managed sandbox connections, an ACPX platform check can defer runtime
+preparation to the normal Runner launch. After the selected account completes
+its provider hello probe or live API-key check, that specific deferred check is
+informational. Authentication failures, unsupported platforms, other warnings,
+and self-hosted or SSH runtime checks retain their status. A passed connection
+test does not replace Runner package verification before execution.
 Public-path tests are in `server/src/__tests__/heartbeat-execution-configuration.test.ts`.
 
 Concurrent skill preparations join the company inventory refresh before taking
