@@ -22,8 +22,6 @@ describe("task interruption latest run query", () => {
       for (const child of node.Plans as Record<string, unknown>[] ?? []) visit(child);
     };
     visit(explain["QUERY PLAN"][0].Plan);
-    // A deterministic work bound, not a wall-clock assertion: six selected runs
-    // must not require a scan of the other 1,500 histories in this fixture.
     expect(Math.max(...inspected)).toBeLessThan(30);
     const presentations = await taskInterruptionPresentations(db, f.companyId, f.input);
     for (const issue of f.input) expect(presentations.get(issue.id)).toMatchObject({ state: "failed", canRetry: true });
@@ -36,7 +34,6 @@ describe("task interruption latest run query", () => {
     const input = await db.insert(issues).values(Array.from({ length: 10 }, (_, n) => ({ companyId, title: `Selector ${n}`, status: "in_progress", assigneeAgentId: agentId }))).returning();
     const base = { companyId, agentId, status: "failed", createdAt: new Date("2026-10-27T00:00:00Z") };
     const winnerIds = Array.from({ length: 7 }, () => randomUUID());
-    // Insert historical shapes without the modern write-time normalization.
     await db.$client.unsafe("alter table heartbeat_runs disable trigger heartbeat_runs_set_scope_kind");
     await db.insert(heartbeatRuns).values([
       { ...base, id: winnerIds[0], nativeIssueId: input[0]!.id, issueId: input[1]!.id, scopeKind: "issue", contextSnapshot: { issueId: input[2]!.id } },

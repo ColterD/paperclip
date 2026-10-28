@@ -13,7 +13,6 @@ const baselineRef = process.argv.find(arg => arg.startsWith("--baseline-ref="))?
 assert.ok(baselineRef, "Pass an explicit pre-fix --baseline-ref");
 const baselineRevision = execFileSync("git", ["rev-parse", "--verify", `${baselineRef}^{commit}`], { encoding: "utf8" }).trim();
 const modulePath = "server/src/services/task-interruption-presentation.ts";
-// The pinned old service must not accidentally consume a changed SQL helper.
 const changedRuntime = execFileSync("git", ["diff", "--name-only", baselineRevision, "--", "server/src/services", "packages/db/src", "packages/shared/src", "pnpm-lock.yaml"], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
 assert.deepEqual(changedRuntime.filter(file => file !== modulePath), [], "Changed baseline dependency requires explicit isolation");
 const keepAlive = setInterval(() => {}, 1000);
@@ -40,8 +39,12 @@ try {
     { selected: 1, history: 120, unrelated: 1200, payloadBytes: 24 * 1024 },
     { selected: 100, history: 40, unrelated: 1200, payloadBytes: 12 * 1024 },
     { selected: 100, history: 40, unrelated: 1200, payloadBytes: 12 * 1024, preserveLegacyBindings: false },
+    { selected: 1000, history: 1, unrelated: 1200, payloadBytes: 12 * 1024, preserveLegacyBindings: false },
   ]) {
-    await db.$client.unsafe("truncate heartbeat_runs cascade");
+    await db.$client.begin(async client => {
+      await client.unsafe("set local client_min_messages = warning");
+      await client.unsafe("truncate heartbeat_runs cascade");
+    });
     const seedStart = performance.now();
     const f = await seedInterruptionFixture(db, fixture);
     const seedMs = performance.now() - seedStart;

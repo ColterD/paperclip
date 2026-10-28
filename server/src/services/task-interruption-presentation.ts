@@ -84,12 +84,8 @@ export async function taskInterruptionPresentations(db: Db, companyId: string, i
   const result = new Map<string, TaskInterruptionPresentation | null>();
   if (!selected.length) return result;
   const ids = selected.map(issue => issue.id);
-  // Probe each binding index for only its newest matching run. Branches are
-  // disjoint and preserve native > first-class > legacy text precedence.
   const requested = sql`unnest(${sql.param([...new Set(ids)])}::text[]) as requested_interruption_issues(requested_issue_id)`;
   const requestedIssueId = sql<string>`"requested_interruption_issues"."requested_issue_id"`;
-  // UUID casts accept uppercase and noncanonical text. Keep the old text-match
-  // semantics for arbitrary caller strings, while leaving UUID columns indexed.
   const requestedUuid = sql<string>`case when ${requestedIssueId} ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
     then ${requestedIssueId}::uuid else null end`;
   const legacyIssue = sql<string>`${heartbeatRuns.contextSnapshot}->>'issueId'`;
@@ -101,7 +97,6 @@ export async function taskInterruptionPresentations(db: Db, companyId: string, i
     candidate(and(isNull(heartbeatRuns.nativeIssueId), eq(heartbeatRuns.issueId, requestedUuid))),
     candidate(and(isNull(heartbeatRuns.nativeIssueId), isNull(heartbeatRuns.issueId), eq(legacyIssue, requestedIssueId))),
   ).as("interruption_run_candidates");
-  // Fetch evidence only for the winner, in the same statement and snapshot.
   const latestRuns = db.select({ id: candidates.id }).from(candidates)
     .orderBy(desc(candidates.createdAt), desc(candidates.id)).limit(1).as("latest_interruption_runs");
   const wakeIssue = sql<string>`${agentWakeupRequests.payload}->>'issueId'`;

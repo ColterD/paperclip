@@ -5,7 +5,6 @@ import type { taskInterruptionPresentations } from "../../services/task-interrup
 export type InterruptionReader = typeof taskInterruptionPresentations;
 export type CapturedQuery = { sql: string; params: unknown[] };
 
-/** Keep the full service on its real query-builder path and capture its run read. */
 export async function captureInterruptionQuery(db: Db, reader: InterruptionReader,
   companyId: string, input: Parameters<InterruptionReader>[2]) {
   let captured: CapturedQuery | undefined;
@@ -33,7 +32,6 @@ export async function captureInterruptionQuery(db: Db, reader: InterruptionReade
   return captured;
 }
 
-/** Synthetic mixed native/first-class/legacy history, with incompressible JSON. */
 export async function seedInterruptionFixture(db: Db, options: {
   selected: number; history: number; unrelated: number; payloadBytes: number; preserveLegacyBindings?: boolean;
 }) {
@@ -48,7 +46,6 @@ export async function seedInterruptionFixture(db: Db, options: {
   const contextNoise = randomBytes(options.payloadBytes).toString("base64");
   const resultNoise = randomBytes(options.payloadBytes).toString("base64");
   const ids = input.map(issue => issue.id);
-  // Retain legacy null bindings as they existed before the scope-fill trigger.
   if (options.preserveLegacyBindings !== false) await db.$client.unsafe("alter table heartbeat_runs disable trigger heartbeat_runs_set_scope_kind");
   await db.$client.unsafe(`insert into heartbeat_runs
     (company_id, agent_id, scope_kind, native_issue_id, issue_id, status, created_at, context_snapshot, result_json)
