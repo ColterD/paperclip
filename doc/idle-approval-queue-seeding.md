@@ -48,7 +48,7 @@ change, including the proposal in #13364.
 
 | Producer | Commit boundary and effect |
 | --- | --- |
-| Approval create, cancel, revision, resubmit, resolve | `writeApprovalChange` notifies retention and queue seeding before writes in the owning transaction. |
+| Approval create, cancel, revision, resubmit, resolve | `writeApprovalChange` notifies retention and company-scoped queue seeding before writes in the owning transaction. Approve/reject/cancel retain their explicit tool-review notification; ordinary mutations do not wake those queues. |
 | Shared approval records, budget approvals, formal tool approvals | The same approval notification covers their existing transactions. |
 | Issue approval link, unlink, link-many, tool-created links | Existing approval transaction helper. Link removal can expose a different first issue. |
 | Issue visibility changes and issue deletion | Existing approval notification before the update or cascading delete. Routine failure cleanup retains this signal. |
@@ -162,3 +162,32 @@ Server typecheck and build pass; fresh remote review/checks remain required.
 
 The final startup, approval-retention, and attention consumer run passes all 93
 cases. With the 25 worker and six queue cases, 124 affected tests pass.
+
+
+## Current retention-parent integration
+
+The seeding worker reuses `firstApprovalIssueId` from the approval-visibility
+owner rather than retaining its own first-link SQL. Company IDs are part of the
+approval notification contract because projection reconciliation is scoped.
+Generic approval writes notify retention and seeding only; the existing terminal
+approve/reject/cancel owners alone notify tool-review consumers. Current precise
+issue-deletion target notifications, unseen retention controls, finite retention
+cycles and the real source-row lock regressions are preserved.
+
+All 522 cases in fifteen complete suites pass at `4e725e2055`, with server
+typecheck and production build. This includes seeding, queue routes, work products,
+issue comments, both retention workers, approvals, attention, retention controls,
+budgets, tool gateway, startup, scoped deadlines, environment cleanup and task
+watchdogs. Four new disposable fixtures were cloned from the already migrated
+parent fixture; this is not a fresh-empty-schema claim. The other suites used
+separate existing disposable databases. No database was shared with another
+concurrent local test run. The subsequent parent merge changes only two documents;
+all tested runtime and acceptance sources remain byte-identical.
+
+The first integration typecheck caught two incorrect gateway company references.
+They now use the existing session company, and typecheck plus the complete gateway
+suite pass. Earlier deadlock, cross-company wake, backoff, skipped-fixture and
+teardown failures remain in the historical sections above. The parent's attention
+cleanup timeout and expiry-test CI assertion are recorded in its document; this
+larger current run passes without changing their assertions or timeouts. Fresh
+exact-head reviews and CI remain required before this dependent PR can merge.

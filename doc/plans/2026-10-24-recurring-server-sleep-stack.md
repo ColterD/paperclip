@@ -1201,3 +1201,14 @@ PR-product predicate. All 124 affected worker/queue/startup/retention/attention
 cases pass, along with server types/build. One initial consumer command skipped
 six queue tests because its DB variable was missing; the corrected run executes
 and passes them. Fresh remote checks and review remain required after publication.
+
+
+Slice 16 current parent: approval seeding integrates published join retention
+`b41c51c70f`. Only the original 25 seeding paths differ from the tested parent;
+all other files match it. The worker shares the first-linked-issue policy, and
+generic writes preserve retention-plus-scoped-seeding signals while terminal
+approval outcomes retain tool-review signals. All 522 cases in fifteen complete
+suites, server types and production build pass at `4e725e2055`. An initial
+integration typecheck caught incorrect gateway company references; those are
+repaired with the existing session company. The final parent merge adds only
+two documents. Fresh final-head CI/reviews and the parent's merge remain required.
