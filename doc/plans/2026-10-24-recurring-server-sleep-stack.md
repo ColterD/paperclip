@@ -1255,3 +1255,13 @@ suites, server types and production build pass at `4e725e2055`. An initial
 integration typecheck caught incorrect gateway company references; those are
 repaired with the existing session company. The final parent merge adds only
 two documents. Fresh final-head CI/reviews and the parent's merge remain required.
+
+
+Slice 17 current review repair: a retained plugin completion can no longer wait
+indefinitely for a PostgreSQL statement/row lock. The transaction-local timeout
+preserves the saved result for retry and allows existing shutdown cleanup to
+continue; the provider is not called again. A real lock regression failed then
+passed. All 34 scheduler cases and 247 cases in eleven complete lifecycle and
+existing-worker suites pass at `36be0bd733`, plus server types/build. This is not
+a guarantee about every network or shutdown operation. Final parent integration,
+fresh remote review and all CI gates remain required.
