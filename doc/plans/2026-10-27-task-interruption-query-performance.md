@@ -73,9 +73,25 @@ plan drops shared buffer hits from 30,033 to 3,400. The modern dense control dro
 modern page adds 4.12 ms (9.99 to 14.11 ms), with buffer hits increasing from
 15,467 to 22,008. The extra probes cost more for such wide, shallow history.
 These absolute costs are retained as tradeoffs; no adaptive threshold is added.
-The indexed native branch still sorts that task's native history because the
-existing native index orders by ID, not creation time. This does not bound all
-history work independently of history depth.
+Each branch can still inspect a task's own history. The native index lacks
+creation-time ordering and must sort native candidates. First-class and legacy
+indexes also contain native-bound rows; the precedence guards can discard those
+rows only after fetching them. A deeply native-bound task can therefore cause
+three per-task history walks, even though each branch returns at most one row.
+The modern 40-run control includes this effect; it does not establish constant
+work at 10,000 runs per task.
+
+Immediate follow-up for that remaining cost: profile a synthetic 10,000-run,
+mostly native-bound task with complete result equality and per-branch
+`EXPLAIN (ANALYZE, BUFFERS)` counters. First test a migration-free selection that
+avoids repeated walks while retaining precedence and timestamp/ID ties. If an
+index is still necessary, evaluate a company/native-issue/creation-time index,
+a first-class binding index restricted to `native_issue_id IS NULL`, and a legacy
+binding index restricted to both native and first-class bindings being null.
+Measure the complete index builds and blocking on a production-size disposable
+fixture. If a build exceeds the one-to-two-minute budget, first optimize it and
+flag the remaining cost for human review. No partial index or startup DDL is
+included in this PR.
 
 ## Feedback loop and practical limit
 
@@ -90,8 +106,14 @@ Dependency setup took 22.1 s. The baseline's patch configuration did not match i
 committed lockfile, so the isolated install needed a local non-frozen resolution.
 The lockfile is unchanged in this PR; its effective dependency record is retained
 with private raw evidence. A larger existing consumer suite initially failed to
-load because plugin-sdk had not been built; it must be rerun after normal build
-setup. That failure is not counted as a pass.
+load because plugin-sdk had not been built. After normal build setup, all 19
+focused query and authority-consumer cases passed. Full recursive typecheck and
+build passed too. The full local suite was stopped after repeated native
+PostgreSQL bootstrap failures; all 16 affected executor cases passed with the
+Docker PostgreSQL 17 substitute. The full local suite is not counted as a pass.
+The first Linux CI attempt also had one failure in an unchanged Runner close
+fixture. One targeted job retry passed. A separate macOS diagnostic of that close
+fixture still fails; its cause is not diagnosed by this query optimization.
 
 The affected hosted query averaged about 110 ms in the discovery window. Even
 eliminating that query can save at most its serial critical-path contribution;

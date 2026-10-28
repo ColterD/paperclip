@@ -22,6 +22,7 @@ describe("task interruption latest run query", () => {
       for (const child of node.Plans as Record<string, unknown>[] ?? []) visit(child);
     };
     visit(explain["QUERY PLAN"][0].Plan);
+    expect(inspected.length).toBeGreaterThan(0);
     expect(Math.max(...inspected)).toBeLessThan(30);
     const presentations = await taskInterruptionPresentations(db, f.companyId, f.input);
     for (const issue of f.input) expect(presentations.get(issue.id)).toMatchObject({ state: "failed", canRetry: true });
