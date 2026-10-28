@@ -952,3 +952,9 @@ For this policy version, `operatingReconciliation` is always `pending`; the
 immutable controller summary has no operating invoice settlement step. Mixed
 histories retain that warning when any campaign uses the policy. A shared
 `accountingReadiness` label appears only when every campaign uses it.
+
+
+The trusted controller artifact preserves hidden dependency metadata as well as
+code. Its inventory verifier requires every recorded byte, including package
+`.npmignore` files. Only the fresh provider-credential-free controller build uses
+this upload setting; private attempts still use the protected archive path.

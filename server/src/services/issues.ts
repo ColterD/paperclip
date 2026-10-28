@@ -1,3 +1,4 @@
+import { notifyApprovalWork } from "./approval-work-notifications.js";
 import { notifyDecisionTargetWork, notifyDecisionTargetIssueRemoval } from "./decision-targets.js";
 import { assertOnboardingFirstTaskCreationAllowed } from "./onboarding-first-task-admission.js";
 
@@ -11389,6 +11390,9 @@ export function issueService(db: Db) {
         if (patch.status === "done" || patch.status === "cancelled") {
           await notifyDecisionTargetWork(tx, `issue:${id}`);
         }
+        if (patch.hiddenAt !== undefined || patch.harnessKind !== undefined || patch.conversationAgentId !== undefined) {
+          await notifyApprovalWork(tx, receiptExisting.companyId);
+        }
         const updated = await tx
           .update(issues)
           .set(patch)
@@ -11796,6 +11800,8 @@ export function issueService(db: Db) {
         try {
           await notifyTerminalWorkspaceWork(tx, `issue:${id}`);
           await requestRestorePointDeletion(tx, { sourceIssueId: id });
+          const [owner] = await tx.select({ companyId: issues.companyId }).from(issues).where(eq(issues.id, id));
+          if (owner) await notifyApprovalWork(tx, owner.companyId);
           await notifyDecisionTargetIssueRemoval(tx, id);
           removedIssue = await tx
             .delete(issues)

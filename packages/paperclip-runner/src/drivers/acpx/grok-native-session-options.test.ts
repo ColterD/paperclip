@@ -5,6 +5,38 @@ import { join } from "node:path";
 import { createAcpRuntime, createAgentRegistry, createRuntimeStore, type AcpRuntimeHandle } from "acpx/runtime";
 import { expect, it } from "vitest";
 import { createGrokEffortAdmission } from "./grok-effort.js";
+import { acpxSidecarErrorCode } from "../../cli/acpx-sidecar-input.js";
+
+it("retains a native Grok acknowledgement failure through the real ACPX connection", async () => {
+  const root = await mkdtemp(join(tmpdir(), "grok-rejected-admission-"));
+  const fixture = join(root, "grok.cjs");
+  await writeFile(fixture, String.raw`
+    const readline = require("node:readline");
+    readline.createInterface({input:process.stdin}).on("line", line => {
+      const request = JSON.parse(line);
+      const result = request.method === "initialize"
+        ? {protocolVersion:1,agentCapabilities:{},authMethods:[]}
+        : {sessionId:"private-session",models:{currentModelId:"grok-4.7",availableModels:[{modelId:"grok-4.7",name:"grok-4.7"}]},_meta:{privateToken:"private-token-canary"}};
+      process.stdout.write(JSON.stringify({jsonrpc:"2.0",id:request.id,result})+"\n");
+    });
+  `);
+  const admission = createGrokEffortAdmission("high", "grok-4.7");
+  const children: ReturnType<typeof spawn>[] = [];
+  const runtime = createAcpRuntime({ cwd: root, sessionStore: createRuntimeStore({stateDir:join(root,"state")}),
+    agentRegistry: createAgentRegistry({overrides:{grok:[fixture,"agent","stdio"]}}), permissionMode:"approve-reads",
+    protocolGuardFactory: () => admission.createGuard(),
+    spawnAgent: () => { const child = spawn(process.execPath,[fixture],{cwd:root,env:{},stdio:"pipe"}); children.push(child); return child; },
+  });
+  try {
+    const failure = await runtime.ensureSession({sessionKey:"native-rejection",agent:"grok",mode:"persistent",sessionOptions:{model:"grok-4.7"}}).catch(error => error);
+    expect(acpxSidecarErrorCode(failure)).toBe("GROK_EFFORT_ACKNOWLEDGEMENT_MISSING");
+    expect(failure.message).not.toContain("private-token-canary");
+    expect(() => admission.assertReady()).toThrow("missing or ambiguous");
+  } finally {
+    for (const child of children) if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await rm(root,{recursive:true,force:true});
+  }
+});
 
 it.each(["low", "high"] as const)("transports and restores native Grok %s effort through the real ACPX client", async effort => {
   const root = await mkdtemp(join(tmpdir(), "grok-native-session-options-"));

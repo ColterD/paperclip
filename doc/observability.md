@@ -354,6 +354,14 @@ phase names, wall timestamps, and success/failure, with a 1 MiB request limit,
 128 retained measurements, and 16 measurements per phase. No operator OTLP endpoint
 or ingestion credential is passed to OpenCode.
 
+For fresh remote diagnostic runs, the selected pack must contain the current
+build's OpenCode proxy. An otherwise compatible image pack can predate the
+collector. Such a pack cannot satisfy the diagnostic request. The existing
+verified pack preparation path selects or stages the current proxy; it can add
+startup time or fail admission when matching runtime assets are unavailable.
+Ordinary runs retain compatible image-pack reuse. Recovery retains the pack
+identity already admitted for that session.
+
 Available phases cover context/instruction loading, skill discovery, tool and model
 resolution, model streaming (`ai.streamText`, including stream consumption), Git
 discovery/default branch, snapshots, dependency installation, and plugin startup.

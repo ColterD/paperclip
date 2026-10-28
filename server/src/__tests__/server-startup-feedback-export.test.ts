@@ -1,3 +1,6 @@
+import { approvalQueueSeedingService } from "../services/approval-queue-seeding-work.js";
+import { joinRequestRetentionService } from "../services/join-request-retention.js";
+import { approvalRetentionService } from "../services/approval-retention.js";
 import { createSecretProposalsService } from "../services/secret-proposals.js";
 import { logger } from "../middleware/logger.js";
 import { getStartupRecoveryState } from "../startup-recovery-state.js";
@@ -330,6 +333,21 @@ vi.mock("../realtime/live-events-ws.js", () => ({
   setupLiveEventsWebSocketServer: vi.fn(),
 }));
 
+vi.mock("../services/join-request-retention.js", async importOriginal => ({
+  ...await importOriginal<typeof import("../services/join-request-retention.js")>(),
+  joinRequestRetentionService: vi.fn(() => ({ sweep: vi.fn(async () => ({ archived: 0 })), next: vi.fn(async () => null) })),
+}));
+
+vi.mock("../services/approval-queue-seeding-work.js", async importOriginal => ({
+  ...await importOriginal<typeof import("../services/approval-queue-seeding-work.js")>(),
+  approvalQueueSeedingService: vi.fn(() => ({ sweep: vi.fn(async () => undefined), next: vi.fn(() => null), request: vi.fn() })),
+}));
+
+vi.mock("../services/approval-retention.js", async importOriginal => ({
+  ...await importOriginal<typeof import("../services/approval-retention.js")>(),
+  approvalRetentionService: vi.fn(() => ({ sweep: vi.fn(async () => ({ archived: 0 })), next: vi.fn(async () => null) })),
+}));
+
 vi.mock("../services/index.js", () => ({
   backfillLegacyToolOAuthTokens: vi.fn(async () => ({
     scannedConnections: 0,
@@ -528,6 +546,45 @@ describe("startServer feedback export wiring", () => {
     createBetterAuthInstanceMock.mockReturnValue({});
     deriveAuthTrustedOriginsMock.mockReturnValue([]);
     process.env.BETTER_AUTH_SECRET = "test-secret";
+  });
+
+  it.each([false, true])("registers approval queue seeding only when maintenance is enabled (%s)", async enabled => {
+    loadConfigMock.mockReturnValue(buildTestConfig({ heartbeatSchedulerEnabled: enabled }));
+    await startServer(); await settleStartupHousekeeping();
+    const registration = deliveryWorkRegisterMock.mock.calls.find(([queue]) => queue === DELIVERY_QUEUES.approvalQueueSeeding);
+    expect(Boolean(registration)).toBe(enabled);
+    if (enabled) {
+      const service = vi.mocked(approvalQueueSeedingService).mock.results.at(-1)!.value;
+      await registration![1].run(new AbortController().signal);
+      expect(service.sweep).toHaveBeenCalled();
+      expect(registration![1].nextRunAt()).toBeNull();
+      expect(await registration![1].hasPending()).toBe(false);
+      expect(service.next).toHaveBeenCalled();
+    }
+  });
+
+  it.each([false, true])("registers approval retention only when maintenance is enabled (%s)", async enabled => {
+    loadConfigMock.mockReturnValue(buildTestConfig({ heartbeatSchedulerEnabled: enabled }));
+    await startServer(); await settleStartupHousekeeping();
+    const registration = deliveryWorkRegisterMock.mock.calls.find(([queue]) => queue === DELIVERY_QUEUES.approvalRetention);
+    expect(Boolean(registration)).toBe(enabled);
+    if (enabled) {
+      const service = vi.mocked(approvalRetentionService).mock.results.at(-1)!.value;
+      await registration![1].run(new AbortController().signal);
+      expect(service.sweep).toHaveBeenCalled(); expect(service.next).toHaveBeenCalled();
+    }
+  });
+
+  it.each([false, true])("registers join request retention only when maintenance is enabled (%s)", async enabled => {
+    loadConfigMock.mockReturnValue(buildTestConfig({ heartbeatSchedulerEnabled: enabled }));
+    await startServer(); await settleStartupHousekeeping();
+    const registration = deliveryWorkRegisterMock.mock.calls.find(([queue]) => queue === DELIVERY_QUEUES.joinRequestRetention);
+    expect(Boolean(registration)).toBe(enabled);
+    if (enabled) {
+      const service = vi.mocked(joinRequestRetentionService).mock.results.at(-1)!.value;
+      await registration![1].run(new AbortController().signal);
+      expect(service.sweep).toHaveBeenCalled(); expect(service.next).toHaveBeenCalled();
+    }
   });
 
   it.each([false, true])("registers archive delivery separately from retention sweeps (scheduler %s)", async enabled => {

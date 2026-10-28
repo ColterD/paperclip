@@ -1,4 +1,5 @@
 import { resolveGrokDisableWebSearch } from "./grok-web-search.js";
+import { recordAcpxAdmissionFailure, type ACPX_ADMISSION_CODES } from "./admission-diagnostics.js";
 import { composeCopilotSystemInstructions } from "./copilot-profile.js";
 import { resolveClaudeEffort } from "./claude-effort.js";
 import { resolveGrokEffort } from "./grok-effort.js";
@@ -384,7 +385,7 @@ export class AcpxRuntimeHost {
             ? { providerPolicy: options.providerPolicy } : {}),
         }),
       dependencies.retainAdmissionCleanup,
-    );
+    ).catch(error => { throw recordAcpxAdmissionFailure(error, "binding"); });
     if (options.expectedIdentity) {
       verifyExpectedAcpxIdentity(options.expectedIdentity, binding, null);
     }
@@ -405,7 +406,7 @@ export class AcpxRuntimeHost {
           profile,
         ),
       dependencies.retainAdmissionCleanup,
-    );
+    ).catch(error => { throw recordAcpxAdmissionFailure(error, "installation"); });
     if (installation.commandDigest !== profile.commandDigest) {
       throw new Error("Verified ACPX installation does not match its profile");
     }
@@ -451,6 +452,7 @@ export class AcpxRuntimeHost {
       retainedRejectedRuntimeAdmissions.add(retained);
       retainRuntimeHostCleanup(ownedCleanup);
     };
+    let admissionStage: keyof typeof ACPX_ADMISSION_CODES = "sandbox";
     try {
       const sandbox = await runAbortableAdmissionStage(
         options.signal,
@@ -473,6 +475,7 @@ export class AcpxRuntimeHost {
           }),
         dependencies.retainAdmissionCleanup,
       );
+      admissionStage = "credential";
       if (options.agent === "codex" && !preconfigured) {
         credential = await acquireAbortableAdmissionResource({
           signal: options.signal,
@@ -508,6 +511,7 @@ export class AcpxRuntimeHost {
         });
       }
       options.signal?.throwIfAborted();
+      admissionStage = "configuration";
       const configurationLifetime = credential;
       await runAbortableAdmissionStage(
         options.signal,
@@ -522,7 +526,9 @@ export class AcpxRuntimeHost {
         },
       );
       options.signal?.throwIfAborted();
+      admissionStage = "credential";
       assertAcpxProfileEnvironment(options.agent, sandbox.launchEnvironment);
+      admissionStage = "configuration";
       let launchEnvironment = sandbox.launchEnvironment;
       // This copy is registered by the authenticated controller for its company,
       // agent and run. Environment/config values cannot widen the grant. Each
@@ -548,6 +554,7 @@ export class AcpxRuntimeHost {
         );
         options.signal?.throwIfAborted();
       }
+      admissionStage = "skills";
       if (options.agent === "pi") {
         const skills = await acquireAbortableAdmissionResource({
           signal: options.signal,
@@ -582,6 +589,7 @@ export class AcpxRuntimeHost {
         );
         options.signal?.throwIfAborted();
       }
+      admissionStage = "command";
       command = await acquireAbortableAdmissionResource({
         signal: options.signal,
         acquire: () => installation.openCommand({ signal: options.signal }),
@@ -595,6 +603,7 @@ export class AcpxRuntimeHost {
         signal => installation.openCommand({ signal }),
       );
       command = commandOwner.command;
+      admissionStage = "tool_bridge";
       toolBridge = options.semanticTools
         ? await acquireAbortableAdmissionResource({
             signal: options.signal,
@@ -613,6 +622,7 @@ export class AcpxRuntimeHost {
       if (admittedLifetime === null) {
         throw new Error("ACPX provider lifetime lease is unavailable");
       }
+      admissionStage = "runtime";
       runtime = await acquireAbortableAdmissionResource({
         signal: options.signal,
         acquire: async () => {
@@ -683,6 +693,7 @@ export class AcpxRuntimeHost {
           });
         },
       });
+      admissionStage = "identity";
       const runtimeIdentity = await runAbortableAdmissionStage(
         options.signal,
         () =>
@@ -734,6 +745,7 @@ export class AcpxRuntimeHost {
       });
     } catch (error) {
       error = classifyAcpxProfileError(options.agent, error) ?? error;
+      recordAcpxAdmissionFailure(error, admissionStage);
       const cleanup = cleanupRuntimeResources(
         runtime,
         toolBridge,

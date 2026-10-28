@@ -228,7 +228,12 @@ describe.skipIf(!support.supported)("environment cleanup scheduling", () => {
     for (let i = 0; i < 33; i++) {
       const lease = await pending(); await environmentService(db).releaseLease(lease.id, "failed", { cleanupStatus: "success" });
     }
-    await start(true); await settle(300_000); await settle(300_000); expect(inspections).toHaveBeenCalledTimes(33); await quiet();
+    await start(true);
+    await vi.waitFor(async () => {
+      await settle(300_000);
+      expect(inspections).toHaveBeenCalledTimes(33);
+    }, { timeout: 5000 });
+    await quiet();
   });
   it("keeps unknown historical resources scheduled until provider confirmation", async () => {
     const lease = await pending(); await environmentService(db).releaseLease(lease.id, "failed", { cleanupStatus: "success" });

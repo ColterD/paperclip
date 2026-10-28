@@ -1,3 +1,4 @@
+import { notifyApprovalWork } from "./approval-work-notifications.js";
 import { notifyDecisionTargetIssueRemoval } from "./decision-targets.js";
 import { DELIVERY_QUEUES, notifyDeliveryWork } from "./delivery-work-notifications.js";
 import { verifyAppWebhook } from "./app-webhook.js";
@@ -1965,6 +1966,7 @@ export function routineService(
         return updated ?? createdRun;
       } catch (error) {
         if (createdIssue) {
+          await notifyApprovalWork(txDb, createdIssue.companyId);
           await notifyDecisionTargetIssueRemoval(txDb, createdIssue.id);
           await txDb.delete(issues).where(eq(issues.id, createdIssue.id));
         }

@@ -1,3 +1,4 @@
+import { notifyCompanyRetentionWork } from "./retention-work-notifications.js";
 import { notifyToolReviewChange } from "./tool-review-work-notifications.js";
 import { DELIVERY_QUEUES, notifyDeliveryWork } from "./delivery-work-notifications.js";
 import { agentObservabilityService } from "./agent-observability.js";
@@ -96,6 +97,7 @@ export async function deleteCompany(db: Db, id: string) {
         await tx.delete(agentRuntimeState).where(eq(agentRuntimeState.companyId, id));
         await tx.delete(issueComments).where(eq(issueComments.companyId, id));
         await tx.delete(approvalComments).where(eq(approvalComments.companyId, id));
+        await notifyCompanyRetentionWork(tx, id);
         await tx.delete(approvals).where(eq(approvals.companyId, id));
         await tx.delete(companySecrets).where(eq(companySecrets.companyId, id));
         await tx.delete(joinRequests).where(eq(joinRequests.companyId, id));
