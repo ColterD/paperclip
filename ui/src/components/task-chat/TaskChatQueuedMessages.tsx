@@ -244,6 +244,7 @@ export function TaskChatQueuedMessages({
   const [reordering, setReordering] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const [visibleError, setVisibleError] = useState<string | null>(null);
+  const [deferredStatus, setDeferredStatus] = useState<{ queueId: string | null; message: string } | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, {
@@ -257,6 +258,15 @@ export function TaskChatQueuedMessages({
       (entry) => !optimisticDeliveryIds.current.has(entry.comment.id),
     ));
   }, [queue.entries, queue.revision]);
+
+  useEffect(() => {
+    setDeferredStatus(current => {
+      if (!current) return null;
+      if (queue.state !== "deferred" || queue.queueId !== current.queueId || !queue.entries.length) return null;
+      const message = queue.executionWait?.message ?? "Messages are still queued. They will send when the task is ready.";
+      return current.message === message ? current : { ...current, message };
+    });
+  }, [queue.state, queue.queueId, queue.entries.length, queue.executionWait?.message]);
 
   const ids = useMemo(
     () => entries.map((entry) => entry.comment.id),
@@ -327,7 +337,7 @@ export function TaskChatQueuedMessages({
       ));
     }
     setPending({ commentId, action });
-    setVisibleError(null);
+    setVisibleError(null); setDeferredStatus(null);
     setAnnouncement(
       action === "steer"
         ? "Steering queued message."
@@ -342,7 +352,7 @@ export function TaskChatQueuedMessages({
         if (updatedQueue?.state === "deferred") {
           for (const entry of updatedQueue.entries) optimisticDeliveryIds.current.delete(entry.comment.id);
           setEntries(updatedQueue.entries.filter(entry => !optimisticDeliveryIds.current.has(entry.comment.id)));
-          setVisibleError(updatedQueue.executionWait?.message ?? "Messages are still queued. They will send when the task is ready.");
+          setDeferredStatus({ queueId: updatedQueue.queueId, message: updatedQueue.executionWait?.message ?? "Messages are still queued. They will send when the task is ready." });
           setAnnouncement("Messages are still queued.");
           return;
         }
@@ -387,7 +397,7 @@ export function TaskChatQueuedMessages({
     }
   }
 
-  if (entries.length === 0 && !visibleError) return null;
+  if (entries.length === 0 && !visibleError && !deferredStatus) return null;
 
   return (
     <TaskChatComposerBar
@@ -428,6 +438,7 @@ export function TaskChatQueuedMessages({
           })}
         </SortableContext>
       </DndContext>
+      {deferredStatus ? <p role="status" className="border-t border-border px-3 py-1.5 text-xs text-muted-foreground">{deferredStatus.message}</p> : null}
       {visibleError ? (
         <div
           role="status"

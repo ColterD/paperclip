@@ -477,6 +477,12 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
         runId: run.id, context: run.contextSnapshot!, summary: null, exposeLowTrustRaw: false });
       expect(envelope.interruptedRunId).toBe(f.sourceRunId);
       expect(envelope.originCommentIds).toContain(f.commentId);
+      await db.insert(issueRecoveryActions).values({ companyId: f.companyId, sourceIssueId: f.issueId,
+        kind: "active_run_watchdog", cause: "native_continuation_requires_reconciliation", fingerprint: randomUUID(),
+        status: "resolved", outcome: "recovered", evidence: { runId: f.sourceRunId }, nextAction: "Recovery is complete." });
+      const afterRecovery = await buildExecutionContinuation({ db, companyId: f.companyId, issueId: f.issueId, agentId: f.agentId,
+        runId: run.id, context: run.contextSnapshot!, summary: null, exposeLowTrustRaw: false });
+      expect(afterRecovery.originCommentIds).toContain(f.commentId);
       await expect(buildExecutionContinuation({ db, companyId: f.companyId, issueId: f.issueId, agentId: f.agentId,
         runId: randomUUID(), context: run.contextSnapshot!, summary: null, exposeLowTrustRaw: false }))
         .rejects.toThrow("continuation_user_authorization_missing");
