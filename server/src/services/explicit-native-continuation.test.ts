@@ -550,7 +550,8 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
     else expect(result).toBeNull();
   });
 
-  it.each([false, true])("admits a chat context reset without borrowing stop proof but keeps workspace holds: %s", async workspaceHold => {
+  it.each(["valid", "workspace_hold", "wrong_author"])("admits only a verified chat context reset while keeping workspace holds: %s", async scenario => {
+    const workspaceHold = scenario === "workspace_hold";
     const f = await seed(), settings = instanceSettingsService(db), previous = await settings.getExperimental();
     await settings.updateExperimental({ enableAgentChat: true });
     try {
@@ -564,10 +565,10 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
       const blocker = await getExecutionBlocker(db, f.companyId, f.issueId, { conversationResetCommentId: f.commentId });
       if (workspaceHold) expect(blocker).not.toBeNull(); else expect(blocker).toBeNull();
       const wake = await heartbeatService(db).wakeup(f.agentId, { source: "on_demand", triggerDetail: "manual", reason: "issue_commented",
-        requestedByActorType: "user", requestedByActorId: "board", payload: { issueId: f.issueId, commentId: f.commentId },
+        requestedByActorType: "user", requestedByActorId: scenario === "wrong_author" ? "another-user" : "board", payload: { issueId: f.issueId, commentId: f.commentId },
         contextSnapshot: { source: "issue.comment", issueId: f.issueId, wakeCommentId: f.commentId },
       });
-      if (workspaceHold) expect(wake).toBeNull(); else expect(wake).not.toBeNull();
+      if (workspaceHold || scenario === "wrong_author") expect(wake).toBeNull(); else expect(wake).not.toBeNull();
       expect((await db.select().from(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, f.issueId)))[0].evidence)
         .not.toHaveProperty("explicitUserContinuation");
     } finally { await settings.updateExperimental(previous); }
@@ -2127,6 +2128,30 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
       await settings.updateExperimental({ enableAgentChat: experimental.enableAgentChat });
     }
   });
+  it("defers an ordinary follow-up while a recovered export's successful result is still finalizing", async () => {
+    const f = await seed(), resultId = await seedResultBeforeTerminalFailure(f);
+    await db.update(nativeRunFinalizations).set({ phase: "result_accepted", failureCode: null, failureDetail: null })
+      .where(eq(nativeRunFinalizations.runId, f.sourceRunId));
+    await db.update(issueRecoveryActions).set({ status: "resolved", outcome: "recovered", cause: "native_workspace_sync_out_retry_exhausted",
+      evidence: { runId: f.sourceRunId, workspaceRecovery: { status: "recovered" }, systemRecovery: createSystemRecovery(f.sourceRunId) },
+    }).where(eq(issueRecoveryActions.sourceIssueId, f.issueId));
+    expect(await getExecutionBlocker(db, f.companyId, f.issueId)).toBeNull();
+    const blocked = vi.fn();
+    expect(await db.transaction(tx => admitExplicitNativeContinuation({ ...f, db: tx as unknown as typeof db, onBlocked: blocked, dryRun: true }))).toBeNull();
+    expect(blocked).toHaveBeenCalledWith("finalizing_saved_result", expect.any(String));
+    await db.insert(heartbeatRuns).values({ companyId: f.companyId, agentId: f.agentId, status: "running" });
+    const wake = await heartbeatService(db).wakeup(f.agentId, { source: "on_demand", triggerDetail: "manual", reason: "issue_commented",
+      requestedByActorType: "user", requestedByActorId: "board", payload: { issueId: f.issueId, commentId: f.commentId },
+      contextSnapshot: { source: "issue.comment", issueId: f.issueId, wakeCommentId: f.commentId },
+    });
+    expect(wake).toBeNull();
+    const successors = await db.select().from(heartbeatRuns).where(and(eq(heartbeatRuns.companyId, f.companyId), eq(heartbeatRuns.nativeIssueId, f.issueId), eq(heartbeatRuns.status, "queued")));
+    expect(successors).toHaveLength(0);
+    const [waiting] = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.companyId, f.companyId));
+    expect(waiting).toMatchObject({ status: "deferred_issue_execution", runId: null, payload: { executionWait: { reason: "finalizing_saved_result" } } });
+    expect((await db.select().from(nativeRunFinalizations).where(eq(nativeRunFinalizations.runId, f.sourceRunId)))[0]).toMatchObject({ phase: "result_accepted", resultId });
+  });
+
   it("keeps exhausted workspace export on its own repair path after the sandbox stops", async () => {
     const f = await seed(), resultId = await seedResultBeforeTerminalFailure(f);
     await db.delete(issueRecoveryActions).where(eq(issueRecoveryActions.sourceIssueId, f.issueId));

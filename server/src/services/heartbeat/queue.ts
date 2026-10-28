@@ -25,6 +25,7 @@ import { nonIdleSlackIssueCondition } from "../slack-conversation-state.js";
 import { readQueuedInteractionResponse } from "../queued-interaction-response.js";
 import {
   isConversation,
+  isConversationReset,
   isConversationExecutionWake,
   isWaitingConversation,
 } from "../agent-conversations.js";
@@ -3364,9 +3365,17 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
             return { kind: "deferred" as const, admitted: true };
           };
           const explicitContinuationRunId = randomUUID();
+          const [resetComment] = isConversation(issue) && opts.requestedByActorType === "user" && opts.requestedByActorId && wakeCommentId
+            ? await tx.select({ body: issueComments.body }).from(issueComments).where(and(
+                eq(issueComments.companyId, issue.companyId), eq(issueComments.issueId, issue.id),
+                eq(issueComments.id, wakeCommentId), eq(issueComments.authorUserId, opts.requestedByActorId),
+                eq(issueComments.authorType, "user"), isNull(issueComments.deletedAt), isNull(issueComments.createdByRunId),
+              )).limit(1)
+            : [];
+          const verifiedConversationReset = Boolean(resetComment && isConversationReset(resetComment.body));
           const executionBlocker = await getExecutionBlocker(
             tx as unknown as Db, issue.companyId, issue.id,
-            { conversationResetCommentId: opts.requestedByActorType === "user" ? wakeCommentId : null },
+            { conversationResetCommentId: verifiedConversationReset ? wakeCommentId : null },
           );
           // Prove eligibility without retiring the hold. Later gates can still
           // decline this wake; hold retirement and successor creation stay atomic.
@@ -3389,7 +3398,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
             ...(durableRequest?.resumeDeferred && !failedChatRetry ? { durableChatRequest: durableRequest } : {}),
             dryRun: true,
             onBlocked: (reason, message) => { continuationBlocked = true; continuationWait = { reason, message }; },
-          })) && (executionBlocker || (opts.queuedCommentInterruptId && continuationBlocked))) return deferBlockedExecution(continuationHold());
+          })) && (executionBlocker || (continuationBlocked && !verifiedConversationReset))) return deferBlockedExecution(continuationHold());
 
 
           if (
@@ -4190,7 +4199,7 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
             ...(durableRequest?.resumeDeferred && !failedChatRetry ? { durableChatRequest: durableRequest } : {}),
             onBlocked: (reason, message) => { continuationBlocked = true; continuationWait = { reason, message }; },
           });
-          if (!explicitContinuation && (executionBlocker || (opts.queuedCommentInterruptId && continuationBlocked)) && !ownsReconstructionContinuation)
+          if (!explicitContinuation && (executionBlocker || (continuationBlocked && !verifiedConversationReset)) && !ownsReconstructionContinuation)
             return deferBlockedExecution(continuationHold());
           if (explicitContinuation) {
             enrichedContextSnapshot.forceFreshSession = true;

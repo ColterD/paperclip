@@ -2149,9 +2149,10 @@ its messages and controls visible and explains the current wait.
 A live plan Interrupt binds the click to its target run and the exact operator
 cancellation receipt. Its click may precede that run's stop time, but cannot
 bypass process or workspace cleanup. Other Send clicks must follow the Stop.
-A fresh Agent Chat `/new` reset retains its existing conversation-reset exception;
-the queue-specific continuation check does not impose an old execution hold on
-that reset. Workspace recovery holds still block it.
+Only a persisted Agent Chat `/new` authored by the requesting user retains the
+conversation-reset exception. Ordinary follow-ups still wait for an accepted
+result to finish committing, even after workspace export recovery clears its
+execution blocker. Workspace recovery holds still block the reset.
 
 The active session advertises steering only when its driver supports it. A
 transport method that rejects steering does not grant that capability. The
